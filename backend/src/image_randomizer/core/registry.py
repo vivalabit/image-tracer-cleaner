@@ -150,7 +150,7 @@ METHOD_DEFINITIONS: tuple[MethodDefinition, ...] = (
         name="interference",
         legacy_name="interference",
         title="Noise",
-        description="Add random RGB noise. Legacy UI exposed this, but PHP API did not implement it.",
+        description="Add random RGB noise.",
         parameters=(
             _parameter(
                 "strength",
