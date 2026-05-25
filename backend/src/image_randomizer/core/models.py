@@ -11,6 +11,20 @@ class Operation:
 
 
 @dataclass(frozen=True)
+class RecipeStep:
+    name: str
+    enabled: bool = True
+    params: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class Recipe:
+    seed: int | None
+    output_format: str
+    steps: tuple[RecipeStep, ...]
+
+
+@dataclass(frozen=True)
 class NumericRange:
     min: int | float
     max: int | float

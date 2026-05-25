@@ -24,7 +24,17 @@ export type MethodDefinition = {
   reversible: boolean;
 };
 
-export type Operation = {
+export type OutputFormat = "PNG" | "JPEG" | "WEBP";
+
+export type RecipeStep = {
   name: string;
+  enabled: boolean;
   params: Record<string, unknown>;
+};
+
+export type Recipe = {
+  file: File;
+  seed: number | null;
+  output_format: OutputFormat;
+  steps: RecipeStep[];
 };

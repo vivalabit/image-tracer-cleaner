@@ -111,6 +111,12 @@ button:disabled {
   font-weight: 760;
 }
 
+.status-pill.warning {
+  border-color: #ead1a4;
+  background: #fff6e6;
+  color: #8c5a0f;
+}
+
 .primary-button,
 .ghost-button,
 .metadata-actions button,
@@ -516,6 +522,16 @@ button:disabled {
   color: #1e5b73;
 }
 
+.inline-error {
+  margin: 0;
+  border-top: 1px solid #f0d0c8;
+  padding: 10px 14px;
+  background: #fff8f6;
+  color: #9f3e31;
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .step-list {
   display: grid;
   gap: 8px;
@@ -707,6 +723,13 @@ button:disabled {
   text-align: right;
 }
 
+.empty-row {
+  padding: 12px;
+  background: #fff;
+  color: #68706a;
+  font-size: 13px;
+}
+
 .metadata-tabs {
   display: flex;
   gap: 6px;
@@ -802,6 +825,20 @@ button:disabled {
   font-size: 11px;
   font-weight: 850;
   text-align: center;
+}
+
+.recipe-preview {
+  margin: 0;
+  max-height: 260px;
+  overflow: auto;
+  border-top: 1px solid #edf0ed;
+  padding: 12px;
+  background: #fbfcfb;
+  color: #2e3831;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
 }
 
 @media (max-width: 1180px) {

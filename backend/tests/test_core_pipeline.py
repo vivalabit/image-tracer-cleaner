@@ -8,7 +8,7 @@ from PIL import Image
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from image_randomizer.core.models import Operation
+from image_randomizer.core.models import Operation, RecipeStep
 from image_randomizer.core.pipeline import apply_pipeline
 from image_randomizer.core.registry import get_method_definitions
 
@@ -61,6 +61,14 @@ class CorePipelineTest(unittest.TestCase):
         result = apply_pipeline(image, [Operation("move", {"x": 3, "y": 2})])
 
         self.assertEqual(result.size, image.size)
+
+    def test_disabled_recipe_steps_are_skipped(self) -> None:
+        image = Image.new("RGB", (4, 2), "black")
+        image.putpixel((0, 0), (255, 0, 0))
+
+        result = apply_pipeline(image, [RecipeStep("hmirror", enabled=False)])
+
+        self.assertEqual(result.getpixel((0, 0)), (255, 0, 0))
 
 
 if __name__ == "__main__":

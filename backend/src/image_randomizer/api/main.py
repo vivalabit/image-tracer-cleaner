@@ -7,6 +7,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 
 from image_randomizer.core.pipeline import apply_pipeline, load_image_bytes, save_image_bytes
+from image_randomizer.core.recipe import parse_recipe_payload
 from image_randomizer.core.registry import get_method_definitions
 
 app = FastAPI(title="Image Randomizer API", version="0.1.0")
@@ -25,25 +26,25 @@ def methods() -> dict[str, list[dict[str, object]]]:
 @app.post("/api/randomize")
 async def randomize(
     file: UploadFile = File(...),
-    operations: str = Form("[]"),
-    seed: int | None = Form(None),
-    output_format: str = Form("PNG"),
+    recipe: str = Form(...),
 ) -> Response:
     try:
-        parsed_operations = json.loads(operations)
+        recipe_payload = json.loads(recipe)
     except json.JSONDecodeError as exc:
-        raise HTTPException(status_code=400, detail="operations must be valid JSON") from exc
+        raise HTTPException(status_code=400, detail="recipe must be valid JSON") from exc
 
-    if not isinstance(parsed_operations, list):
-        raise HTTPException(status_code=400, detail="operations must be a JSON array")
+    try:
+        parsed_recipe = parse_recipe_payload(recipe_payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     data = await file.read()
     try:
         image = load_image_bytes(data)
-        result = apply_pipeline(image, parsed_operations, seed=seed)
-        payload = save_image_bytes(result, output_format)
+        result = apply_pipeline(image, parsed_recipe.steps, seed=parsed_recipe.seed)
+        payload = save_image_bytes(result, parsed_recipe.output_format)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    media_type = f"image/{output_format.lower()}"
+    media_type = f"image/{parsed_recipe.output_format.lower()}"
     return Response(content=payload, media_type=media_type)

@@ -1,4 +1,4 @@
-import type { MethodDefinition, Operation } from "./types";
+import type { MethodDefinition, Recipe } from "./types";
 
 type MethodsResponse = {
   methods: MethodDefinition[];
@@ -15,20 +15,11 @@ export async function fetchMethods(): Promise<MethodDefinition[]> {
   return payload.methods;
 }
 
-export async function randomizeImage(input: {
-  file: File;
-  operations: Operation[];
-  seed: string;
-}): Promise<Blob> {
+export async function randomizeImage(input: Recipe): Promise<Blob> {
+  const { file, ...recipe } = input;
   const formData = new FormData();
-  formData.append("file", input.file);
-  formData.append("operations", JSON.stringify(input.operations));
-  formData.append("output_format", "PNG");
-
-  const normalizedSeed = input.seed.trim();
-  if (normalizedSeed !== "") {
-    formData.append("seed", normalizedSeed);
-  }
+  formData.append("file", file);
+  formData.append("recipe", JSON.stringify(recipe));
 
   const response = await fetch("/api/randomize", {
     method: "POST",

@@ -5,9 +5,9 @@ React + TypeScript + Vite MVP for the Python backend contract.
 ## Scope
 
 - Loads operations from `GET /api/methods`.
-- Uploads one image from the browser.
-- Lets the user select operations in backend registry order.
-- Requests a preview through `POST /api/randomize`.
+- Uploads one image from the browser as part of a recipe.
+- Lets the user build ordered `steps` with `name`, `enabled`, and `params`.
+- Sends the shared recipe contract through `POST /api/randomize`.
 - Supports an optional seed for reproducible random defaults.
 - Does not include bulk processing or legacy `path=...` flows.
 
@@ -21,4 +21,3 @@ npm run dev
 ```
 
 The Vite dev server proxies `/api` to the backend.
-

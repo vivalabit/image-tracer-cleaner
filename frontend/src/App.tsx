@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ChangeEvent } from "react";
 
+import { fetchMethods, randomizeImage } from "./api";
+import type { MethodDefinition, MethodParameter, OutputFormat, Recipe, RecipeStep } from "./types";
+
 type AppMode = "manual" | "random" | "metadata" | "batch";
 type PreviewMode = "compare" | "slider" | "difference";
 type MetadataTab = "overview" | "exif" | "iptc" | "xmp" | "output";
@@ -13,17 +16,16 @@ type PipelineParam = {
   range: string;
   unit: string;
   mode: ParamMode;
+  type: string;
 };
 
-type PipelineStep = {
+type PipelineStep = RecipeStep & {
   id: string;
   title: string;
-  operation: string;
   category: string;
-  enabled: boolean;
   randomize: boolean;
   impact: "subtle" | "medium" | "strong";
-  params: PipelineParam[];
+  paramControls: PipelineParam[];
 };
 
 type MetadataRow = {
@@ -36,62 +38,50 @@ type MetadataRow = {
 const starterPipeline: PipelineStep[] = [
   {
     id: "resize",
-    title: "Micro resize",
-    operation: "resize",
+    title: "Unfixed resize",
+    name: "resize",
     category: "Geometry",
     enabled: true,
-    randomize: true,
+    randomize: false,
     impact: "subtle",
-    params: [
-      { id: "scale_x_pct", title: "X scale", value: "100", range: "98-102", unit: "%", mode: "random" },
-      { id: "scale_y_pct", title: "Y scale", value: "100", range: "98-102", unit: "%", mode: "random" },
+    params: {
+      scale_x_pct: 101,
+      scale_y_pct: 99,
+    },
+    paramControls: [
+      { id: "scale_x_pct", title: "X scale", value: "101", range: "75-115", unit: "%", mode: "fixed", type: "integer" },
+      { id: "scale_y_pct", title: "Y scale", value: "99", range: "75-115", unit: "%", mode: "fixed", type: "integer" },
     ],
   },
   {
     id: "noise",
     title: "Fine noise",
-    operation: "interference",
+    name: "interference",
     category: "Pixels",
     enabled: true,
-    randomize: true,
+    randomize: false,
     impact: "subtle",
-    params: [{ id: "strength", title: "Strength", value: "3", range: "1-5", unit: "px", mode: "random" }],
+    params: {
+      strength: 3,
+    },
+    paramControls: [{ id: "strength", title: "Strength", value: "3", range: "0-255", unit: "", mode: "fixed", type: "integer" }],
   },
   {
     id: "contrast",
     title: "Contrast trim",
-    operation: "sharp",
+    name: "sharp",
     category: "Color",
     enabled: true,
     randomize: false,
     impact: "medium",
-    params: [{ id: "amount", title: "Amount", value: "-4", range: "-8-8", unit: "%", mode: "fixed" }],
-  },
-  {
-    id: "metadata",
-    title: "Metadata cleanup",
-    operation: "metadata",
-    category: "Metadata",
-    enabled: true,
-    randomize: false,
-    impact: "medium",
-    params: [
-      { id: "gps", title: "GPS", value: "strip", range: "strip/keep", unit: "", mode: "fixed" },
-      { id: "software", title: "Software", value: "Image Randomizer", range: "custom", unit: "", mode: "fixed" },
-    ],
+    params: {
+      amount: -4,
+    },
+    paramControls: [{ id: "amount", title: "Amount", value: "-4", range: "-30-30", unit: "%", mode: "fixed", type: "number" }],
   },
 ];
 
-const addableSteps = [
-  "Crop",
-  "Rotate",
-  "Blur",
-  "Border",
-  "Pixelization",
-  "Mirror",
-  "Format change",
-  "Metadata template",
-];
+const fallbackAddableMethodNames = ["crop", "rotate", "blur", "border", "pixelization", "hmirror", "vmirror", "invert", "grayscale", "move"];
 
 const metadataRows: Record<MetadataTab, MetadataRow[]> = {
   overview: [
@@ -125,10 +115,7 @@ const metadataRows: Record<MetadataTab, MetadataRow[]> = {
 
 const endpointRows = [
   { method: "GET", path: "/api/methods", note: "operation registry" },
-  { method: "POST", path: "/api/preview", note: "temporary render" },
-  { method: "POST", path: "/api/export", note: "final image" },
-  { method: "POST", path: "/api/metadata/read", note: "metadata scan" },
-  { method: "POST", path: "/api/batch", note: "multi-file job" },
+  { method: "POST", path: "/api/randomize", note: "multipart recipe" },
 ];
 
 function App() {
@@ -137,33 +124,119 @@ function App() {
   const [metadataTab, setMetadataTab] = useState<MetadataTab>("overview");
   const [pipeline, setPipeline] = useState<PipelineStep[]>(starterPipeline);
   const [selectedStepId, setSelectedStepId] = useState(starterPipeline[0].id);
+  const [methods, setMethods] = useState<MethodDefinition[]>([]);
+  const [apiStatus, setApiStatus] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [sourceUrl, setSourceUrl] = useState("");
+  const [outputBlob, setOutputBlob] = useState<Blob | null>(null);
+  const [outputUrl, setOutputUrl] = useState("");
   const [seed, setSeed] = useState("42");
-  const [quality, setQuality] = useState("92");
-  const [outputFormat, setOutputFormat] = useState("PNG");
+  const [outputFormat, setOutputFormat] = useState<OutputFormat>("PNG");
+  const [isRendering, setIsRendering] = useState(false);
+  const [renderError, setRenderError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+
+    fetchMethods()
+      .then((nextMethods) => {
+        if (!active) {
+          return;
+        }
+        setMethods(nextMethods);
+        setApiStatus("");
+      })
+      .catch((error: unknown) => {
+        if (!active) {
+          return;
+        }
+        setApiStatus(error instanceof Error ? error.message : "Failed to load methods");
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!file) {
       setSourceUrl("");
+      setOutputBlob(null);
       return;
     }
 
     const nextUrl = URL.createObjectURL(file);
     setSourceUrl(nextUrl);
+    setOutputBlob(null);
 
     return () => URL.revokeObjectURL(nextUrl);
   }, [file]);
 
+  useEffect(() => {
+    if (!outputBlob) {
+      setOutputUrl("");
+      return;
+    }
+
+    const nextUrl = URL.createObjectURL(outputBlob);
+    setOutputUrl(nextUrl);
+
+    return () => URL.revokeObjectURL(nextUrl);
+  }, [outputBlob]);
+
   const activeSteps = useMemo(() => pipeline.filter((step) => step.enabled), [pipeline]);
-  const selectedStep = pipeline.find((step) => step.id === selectedStepId) ?? pipeline[0];
+  const selectedStep = pipeline.find((step) => step.id === selectedStepId) ?? pipeline[0] ?? null;
+  const methodsByName = useMemo(() => new Map(methods.map((method) => [method.name, method])), [methods]);
+  const addableMethods = useMemo(
+    () => (methods.length > 0 ? methods : fallbackAddableMethodNames.map(createFallbackMethod)),
+    [methods],
+  );
+  const recipePreview = useMemo(
+    () =>
+      JSON.stringify(
+        {
+          file: file ? file.name : null,
+          seed: parseSeedOrNull(seed),
+          output_format: outputFormat,
+          steps: pipeline.map(toRecipeStep),
+        },
+        null,
+        2,
+      ),
+    [file, outputFormat, pipeline, seed],
+  );
 
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     setFile(event.target.files?.[0] ?? null);
   }
 
   function updateStep(stepId: string, patch: Partial<PipelineStep>) {
-    setPipeline((current) => current.map((step) => (step.id === stepId ? { ...step, ...patch } : step)));
+    setPipeline((current) =>
+      current.map((step) => {
+        if (step.id !== stepId) {
+          return step;
+        }
+
+        const next = { ...step, ...patch };
+        return { ...next, params: next.randomize ? {} : controlsToParams(next.paramControls) };
+      }),
+    );
+    setOutputBlob(null);
+  }
+
+  function updateParam(stepId: string, paramId: string, value: string) {
+    setPipeline((current) =>
+      current.map((step) => {
+        if (step.id !== stepId) {
+          return step;
+        }
+
+        const paramControls = step.paramControls.map((param) => (param.id === paramId ? { ...param, value } : param));
+        const next = { ...step, paramControls };
+        return { ...next, params: next.randomize ? {} : controlsToParams(paramControls) };
+      }),
+    );
+    setOutputBlob(null);
   }
 
   function moveStep(stepId: string, direction: -1 | 1) {
@@ -179,23 +252,16 @@ function App() {
       next.splice(nextIndex, 0, step);
       return next;
     });
+    setOutputBlob(null);
   }
 
-  function addStep(title: string) {
-    const id = `${title.toLowerCase().replace(/\s+/g, "-")}-${Date.now()}`;
-    const nextStep: PipelineStep = {
-      id,
-      title,
-      operation: title.toLowerCase().replace(/\s+/g, "_"),
-      category: title === "Metadata template" ? "Metadata" : "Custom",
-      enabled: true,
-      randomize: true,
-      impact: "medium",
-      params: [{ id: "amount", title: "Amount", value: "1", range: "1-3", unit: "", mode: "random" }],
-    };
+  function addStep(methodName: string) {
+    const method = methodsByName.get(methodName) ?? createFallbackMethod(methodName);
+    const nextStep = createPipelineStep(method);
 
     setPipeline((current) => [...current, nextStep]);
-    setSelectedStepId(id);
+    setSelectedStepId(nextStep.id);
+    setOutputBlob(null);
   }
 
   function removeStep(stepId: string) {
@@ -206,6 +272,32 @@ function App() {
       }
       return next;
     });
+    setOutputBlob(null);
+  }
+
+  async function handleRandomize() {
+    if (!file) {
+      setRenderError("Choose an image first.");
+      return;
+    }
+
+    setIsRendering(true);
+    setRenderError("");
+
+    try {
+      const recipe: Recipe = {
+        file,
+        seed: parseSeed(seed),
+        output_format: outputFormat,
+        steps: pipeline.map(toRecipeStep),
+      };
+      const nextOutput = await randomizeImage(recipe);
+      setOutputBlob(nextOutput);
+    } catch (error) {
+      setRenderError(error instanceof Error ? error.message : "Randomize request failed");
+    } finally {
+      setIsRendering(false);
+    }
   }
 
   return (
@@ -221,12 +313,12 @@ function App() {
           </div>
         </div>
         <div className="topbar-actions">
-          <span className="status-pill">API draft</span>
+          <span className={apiStatus ? "status-pill warning" : "status-pill"}>{apiStatus ? "API offline" : "API ready"}</span>
           <button type="button" className="ghost-button">
             Save preset
           </button>
-          <button type="button" className="primary-button">
-            Export
+          <button type="button" className="primary-button" disabled={!file || isRendering} onClick={handleRandomize}>
+            {isRendering ? "Rendering" : "Export"}
           </button>
         </div>
       </header>
@@ -255,28 +347,29 @@ function App() {
 
           <label className="field">
             <span>Seed</span>
-            <input value={seed} inputMode="numeric" onChange={(event) => setSeed(event.target.value)} />
+            <input
+              value={seed}
+              inputMode="numeric"
+              onChange={(event) => {
+                setSeed(event.target.value);
+                setOutputBlob(null);
+              }}
+            />
           </label>
 
           <label className="field">
             <span>Output format</span>
-            <select value={outputFormat} onChange={(event) => setOutputFormat(event.target.value)}>
+            <select
+              value={outputFormat}
+              onChange={(event) => {
+                setOutputFormat(event.target.value as OutputFormat);
+                setOutputBlob(null);
+              }}
+            >
               <option>PNG</option>
               <option>JPEG</option>
               <option>WEBP</option>
             </select>
-          </label>
-
-          <label className="range-field">
-            <span>Quality</span>
-            <input
-              type="range"
-              min="40"
-              max="100"
-              value={quality}
-              onChange={(event) => setQuality(event.target.value)}
-            />
-            <strong>{quality}</strong>
           </label>
 
           <div className="preset-list" aria-label="Presets">
@@ -310,16 +403,17 @@ function App() {
 
           <div className={`preview-stage ${previewMode}`}>
             <ImageViewport title="Source" imageUrl={sourceUrl} variant="source" />
-            <ImageViewport title="Output" imageUrl={sourceUrl} variant="output" />
+            <ImageViewport title="Output" imageUrl={outputUrl || sourceUrl} variant="output" />
             {previewMode === "slider" ? <div className="slider-handle" aria-hidden="true" /> : null}
           </div>
 
           <div className="metric-strip" aria-label="Render metrics">
-            <Metric label="Visual match" value="97.8%" tone="good" />
-            <Metric label="Hash" value="changed" tone="warn" />
-            <Metric label="Metadata" value="4 edits" tone="info" />
-            <Metric label="Size delta" value="-8.2%" tone="good" />
+            <Metric label="Recipe steps" value={`${activeSteps.length}`} tone="info" />
+            <Metric label="Format" value={outputFormat} tone="info" />
+            <Metric label="Seed" value={seed.trim() || "none"} tone="good" />
+            <Metric label="Result" value={renderError ? "error" : outputUrl ? "ready" : "idle"} tone={renderError ? "warn" : "good"} />
           </div>
+          {renderError ? <p className="inline-error">{renderError}</p> : null}
         </section>
 
         <aside className="pipeline-panel" aria-label="Pipeline builder">
@@ -328,8 +422,8 @@ function App() {
               <span className="eyebrow">Pipeline</span>
               <h2>Recipe</h2>
             </div>
-            <button type="button" className="ghost-button small-button">
-              Randomize
+            <button type="button" className="ghost-button small-button" disabled={!file || isRendering} onClick={handleRandomize}>
+              {isRendering ? "Rendering" : "Randomize"}
             </button>
           </div>
 
@@ -403,9 +497,9 @@ function App() {
           </div>
 
           <div className="add-step-grid">
-            {addableSteps.map((step) => (
-              <button key={step} type="button" onClick={() => addStep(step)}>
-                + {step}
+            {addableMethods.map((method) => (
+              <button key={method.name} type="button" onClick={() => addStep(method.name)}>
+                + {method.title}
               </button>
             ))}
           </div>
@@ -414,31 +508,46 @@ function App() {
 
       <section className="detail-grid">
         <section className="settings-panel" aria-label="Selected operation settings">
-          <div className="panel-header compact">
-            <div>
-              <span className="eyebrow">Step settings</span>
-              <h2>{selectedStep.title}</h2>
-            </div>
-            <label className="switch-field">
-              <input
-                type="checkbox"
-                checked={selectedStep.randomize}
-                onChange={(event) => updateStep(selectedStep.id, { randomize: event.target.checked })}
-              />
-              <span>Random</span>
-            </label>
-          </div>
+          {selectedStep ? (
+            <>
+              <div className="panel-header compact">
+                <div>
+                  <span className="eyebrow">Step settings</span>
+                  <h2>{selectedStep.title}</h2>
+                </div>
+                <label className="switch-field">
+                  <input
+                    type="checkbox"
+                    checked={selectedStep.randomize}
+                    onChange={(event) => updateStep(selectedStep.id, { randomize: event.target.checked })}
+                  />
+                  <span>Random</span>
+                </label>
+              </div>
 
-          <div className="param-grid">
-            {selectedStep.params.map((param) => (
-              <label className="param-row" key={param.id}>
-                <span>{param.title}</span>
-                <input defaultValue={param.mode === "random" ? param.range : param.value} />
-                <small>{param.mode}</small>
-                <em>{param.unit}</em>
-              </label>
-            ))}
-          </div>
+              <div className="param-grid">
+                {selectedStep.paramControls.length > 0 ? (
+                  selectedStep.paramControls.map((param) => (
+                    <label className="param-row" key={param.id}>
+                      <span>{param.title}</span>
+                      <input
+                        value={param.value}
+                        placeholder={param.range}
+                        disabled={selectedStep.randomize}
+                        onChange={(event) => updateParam(selectedStep.id, param.id, event.target.value)}
+                      />
+                      <small>{selectedStep.randomize ? "random" : param.mode}</small>
+                      <em>{param.unit}</em>
+                    </label>
+                  ))
+                ) : (
+                  <div className="empty-row">No parameters</div>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="empty-row">No selected step</div>
+          )}
         </section>
 
         <section className="metadata-panel" aria-label="Metadata editor">
@@ -499,6 +608,7 @@ function App() {
               </div>
             ))}
           </div>
+          <pre className="recipe-preview">{recipePreview}</pre>
         </section>
       </section>
     </main>
@@ -554,6 +664,165 @@ function formatPreviewMode(mode: PreviewMode): string {
     difference: "Diff",
   };
   return labels[mode];
+}
+
+function createPipelineStep(method: MethodDefinition): PipelineStep {
+  const paramControls = method.parameters.map(createParamControl);
+  const randomize = paramControls.some((param) => param.mode === "random");
+
+  return {
+    id: `${method.name}-${Date.now()}`,
+    name: method.name,
+    title: method.title,
+    category: inferCategory(method.name),
+    enabled: true,
+    randomize,
+    impact: inferImpact(method.name),
+    params: randomize ? {} : controlsToParams(paramControls),
+    paramControls,
+  };
+}
+
+function createParamControl(parameter: MethodParameter): PipelineParam {
+  const range = formatRange(parameter.random_default ?? parameter.value_range);
+  const value =
+    parameter.default !== null && parameter.default !== undefined
+      ? String(parameter.default)
+      : parameter.random_default
+        ? ""
+        : "";
+
+  return {
+    id: parameter.name,
+    title: parameter.title,
+    value,
+    range,
+    unit: inferUnit(parameter.name),
+    mode: parameter.random_default ? "random" : "fixed",
+    type: parameter.type,
+  };
+}
+
+function createFallbackMethod(name: string): MethodDefinition {
+  return {
+    name,
+    legacy_name: name,
+    title: formatMethodTitle(name),
+    description: "",
+    parameters: [],
+    has_settings: false,
+    reversible: false,
+  };
+}
+
+function toRecipeStep(step: PipelineStep): RecipeStep {
+  return {
+    name: step.name,
+    enabled: step.enabled,
+    params: step.randomize ? {} : step.params,
+  };
+}
+
+function controlsToParams(params: PipelineParam[]): Record<string, unknown> {
+  return params.reduce<Record<string, unknown>>((result, param) => {
+    const value = parseParamValue(param.value, param.type);
+    if (value !== undefined) {
+      result[param.id] = value;
+    }
+    return result;
+  }, {});
+}
+
+function parseParamValue(value: string, type: string): unknown {
+  const normalized = value.trim();
+  if (normalized === "") {
+    return undefined;
+  }
+
+  if (type === "integer") {
+    const parsed = Number.parseInt(normalized, 10);
+    return Number.isFinite(parsed) ? parsed : normalized;
+  }
+
+  if (type === "number") {
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? parsed : normalized;
+  }
+
+  if (type === "rgb_color") {
+    const channels = normalized.split(/[,\s]+/).map((channel) => Number.parseInt(channel, 10));
+    return channels.length === 3 && channels.every(Number.isFinite) ? channels : normalized;
+  }
+
+  return normalized;
+}
+
+function parseSeed(value: string): number | null {
+  const normalized = value.trim();
+  if (normalized === "") {
+    return null;
+  }
+
+  const parsed = Number(normalized);
+  if (!Number.isInteger(parsed)) {
+    throw new Error("Seed must be an integer or empty.");
+  }
+  return parsed;
+}
+
+function parseSeedOrNull(value: string): number | null {
+  try {
+    return parseSeed(value);
+  } catch {
+    return null;
+  }
+}
+
+function formatRange(range: MethodParameter["random_default"]): string {
+  return range ? `${range.min}-${range.max}` : "";
+}
+
+function inferUnit(name: string): string {
+  if (name.endsWith("_pct") || name === "amount") {
+    return "%";
+  }
+  if (name === "angle") {
+    return "deg";
+  }
+  if (name === "size" || name.endsWith("_size") || name === "radius" || name === "x" || name === "y") {
+    return "px";
+  }
+  return "";
+}
+
+function inferCategory(name: string): string {
+  if (["crop", "resize", "fixresize", "rotate", "hmirror", "vmirror", "move"].includes(name)) {
+    return "Geometry";
+  }
+  if (["invert", "grayscale", "sharp"].includes(name)) {
+    return "Color";
+  }
+  if (["interference", "blur", "eskiz", "pixelization"].includes(name)) {
+    return "Pixels";
+  }
+  return "Custom";
+}
+
+function inferImpact(name: string): PipelineStep["impact"] {
+  if (["hmirror", "vmirror", "invert", "grayscale", "eskiz", "pixelization"].includes(name)) {
+    return "strong";
+  }
+  if (["crop", "rotate", "border", "blur", "move"].includes(name)) {
+    return "medium";
+  }
+  return "subtle";
+}
+
+function formatMethodTitle(name: string): string {
+  return name
+    .split(/[_-]+/)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 export default App;

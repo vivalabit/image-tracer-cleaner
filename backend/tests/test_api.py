@@ -44,9 +44,13 @@ class ApiTest(unittest.TestCase):
             "/api/randomize",
             files={"file": ("input.png", _save_png(image), "image/png")},
             data={
-                "operations": json.dumps([{"name": "hmirror"}]),
-                "seed": "42",
-                "output_format": "PNG",
+                "recipe": json.dumps(
+                    {
+                        "seed": 42,
+                        "output_format": "PNG",
+                        "steps": [{"name": "hmirror", "enabled": True, "params": {}}],
+                    }
+                ),
             },
         )
 
@@ -56,6 +60,41 @@ class ApiTest(unittest.TestCase):
         result = Image.open(BytesIO(response.content))
         self.assertEqual(result.size, (3, 2))
         self.assertEqual(result.getpixel((2, 0)), (255, 0, 0))
+
+    def test_randomize_skips_disabled_recipe_steps(self) -> None:
+        image = Image.new("RGB", (3, 2), "black")
+        image.putpixel((0, 0), (255, 0, 0))
+
+        response = self.client.post(
+            "/api/randomize",
+            files={"file": ("input.png", _save_png(image), "image/png")},
+            data={
+                "recipe": json.dumps(
+                    {
+                        "seed": None,
+                        "output_format": "PNG",
+                        "steps": [{"name": "hmirror", "enabled": False, "params": {}}],
+                    }
+                ),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        result = Image.open(BytesIO(response.content))
+        self.assertEqual(result.getpixel((0, 0)), (255, 0, 0))
+
+    def test_randomize_requires_recipe_object(self) -> None:
+        image = Image.new("RGB", (3, 2), "black")
+
+        response = self.client.post(
+            "/api/randomize",
+            files={"file": ("input.png", _save_png(image), "image/png")},
+            data={"recipe": json.dumps([{"name": "hmirror"}])},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "recipe must be a JSON object")
 
 
 def _save_png(image: Image.Image) -> bytes:
