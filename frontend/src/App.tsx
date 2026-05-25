@@ -2,28 +2,27 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 
 import { fetchMethods, randomizeImage } from "./api";
-import type { MethodDefinition, MethodParameter, Operation, OutputFormat, RandomizeRequest, RecipeStep } from "./types";
+import type { MethodDefinition, MethodParameter, NumericRange, Operation, OutputFormat, RandomizeRequest, RecipeStep } from "./types";
 
 type AppMode = "manual" | "random" | "metadata" | "batch";
 type PreviewMode = "compare" | "slider" | "difference";
 type MetadataTab = "overview" | "exif" | "iptc" | "xmp" | "output";
-type ParamMode = "fixed" | "random";
 
 type PipelineParam = {
   id: string;
   title: string;
   value: string;
-  range: string;
+  placeholder: string;
   unit: string;
-  mode: ParamMode;
   type: string;
+  choices: string[];
+  range: NumericRange | null;
 };
 
 type PipelineStep = RecipeStep & {
   id: string;
   title: string;
   category: string;
-  randomize: boolean;
   impact: "subtle" | "medium" | "strong";
   paramControls: PipelineParam[];
 };
@@ -167,7 +166,7 @@ function App() {
         }
 
         const next = { ...step, ...patch };
-        return { ...next, params: next.randomize ? {} : controlsToParams(next.paramControls) };
+        return { ...next, params: controlsToParams(next.paramControls) };
       }),
     );
     setOutputBlob(null);
@@ -182,10 +181,14 @@ function App() {
 
         const paramControls = step.paramControls.map((param) => (param.id === paramId ? { ...param, value } : param));
         const next = { ...step, paramControls };
-        return { ...next, params: next.randomize ? {} : controlsToParams(paramControls) };
+        return { ...next, params: controlsToParams(paramControls) };
       }),
     );
     setOutputBlob(null);
+  }
+
+  function clearParam(stepId: string, paramId: string) {
+    updateParam(stepId, paramId, "");
   }
 
   function moveStep(stepId: string, direction: -1 | 1) {
@@ -471,30 +474,17 @@ function App() {
                   <span className="eyebrow">Step settings</span>
                   <h2>{selectedStep.title}</h2>
                 </div>
-                <label className="switch-field">
-                  <input
-                    type="checkbox"
-                    checked={selectedStep.randomize}
-                    onChange={(event) => updateStep(selectedStep.id, { randomize: event.target.checked })}
-                  />
-                  <span>Random</span>
-                </label>
               </div>
 
               <div className="param-grid">
                 {selectedStep.paramControls.length > 0 ? (
                   selectedStep.paramControls.map((param) => (
-                    <label className="param-row" key={param.id}>
-                      <span>{param.title}</span>
-                      <input
-                        value={param.value}
-                        placeholder={param.range}
-                        disabled={selectedStep.randomize}
-                        onChange={(event) => updateParam(selectedStep.id, param.id, event.target.value)}
-                      />
-                      <small>{selectedStep.randomize ? "random" : param.mode}</small>
-                      <em>{param.unit}</em>
-                    </label>
+                    <ParamControl
+                      key={param.id}
+                      param={param}
+                      onClear={() => clearParam(selectedStep.id, param.id)}
+                      onChange={(value) => updateParam(selectedStep.id, param.id, value)}
+                    />
                   ))
                 ) : (
                   <div className="empty-row">No parameters</div>
@@ -603,6 +593,84 @@ function Metric(props: { label: string; value: string; tone: "good" | "warn" | "
   );
 }
 
+function ParamControl(props: { param: PipelineParam; onChange: (value: string) => void; onClear: () => void }) {
+  const status = props.param.value.trim() === "" ? "backend" : "set";
+
+  return (
+    <div className={`param-row ${props.param.type}`}>
+      <span className="param-title">{props.param.title}</span>
+      <div className="param-control">{renderParamInput(props.param, props.onChange)}</div>
+      <small>{status}</small>
+      <button type="button" className="param-reset" disabled={status === "backend"} onClick={props.onClear}>
+        Default
+      </button>
+    </div>
+  );
+}
+
+function renderParamInput(param: PipelineParam, onChange: (value: string) => void) {
+  if (param.type === "integer" || param.type === "number") {
+    const range = getNumericRange(param);
+    const step = param.type === "integer" ? "1" : "0.1";
+
+    return (
+      <div className="number-param">
+        <input
+          type="number"
+          min={range.min}
+          max={range.max}
+          step={step}
+          value={param.value}
+          placeholder={param.placeholder}
+          onChange={(event) => onChange(event.target.value)}
+        />
+        <input
+          type="range"
+          min={range.min}
+          max={range.max}
+          step={step}
+          value={getSliderValue(param, range)}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      </div>
+    );
+  }
+
+  if (param.type === "enum") {
+    return (
+      <select value={param.value} onChange={(event) => onChange(event.target.value)}>
+        <option value="">Backend default</option>
+        {param.choices.map((choice) => (
+          <option key={choice} value={choice}>
+            {choice}
+          </option>
+        ))}
+      </select>
+    );
+  }
+
+  if (param.type === "rgb_color") {
+    return (
+      <div className="color-param">
+        <input
+          type="color"
+          value={normalizeColorValue(param.value)}
+          onChange={(event) => onChange(event.target.value)}
+        />
+        <code>{param.value || "backend"}</code>
+      </div>
+    );
+  }
+
+  return (
+    <input
+      value={param.value}
+      placeholder={param.placeholder}
+      onChange={(event) => onChange(event.target.value)}
+    />
+  );
+}
+
 function formatMode(mode: AppMode): string {
   const labels: Record<AppMode, string> = {
     manual: "Manual",
@@ -624,7 +692,6 @@ function formatPreviewMode(mode: PreviewMode): string {
 
 function createPipelineStep(method: MethodDefinition, stepNumber: number): PipelineStep {
   const paramControls = method.parameters.map(createParamControl);
-  const randomize = paramControls.some((param) => param.mode === "random");
 
   return {
     id: `${method.name}-${stepNumber}`,
@@ -632,37 +699,29 @@ function createPipelineStep(method: MethodDefinition, stepNumber: number): Pipel
     title: method.title,
     category: inferCategory(method.name),
     enabled: true,
-    randomize,
     impact: inferImpact(method.name),
-    params: randomize ? {} : controlsToParams(paramControls),
+    params: controlsToParams(paramControls),
     paramControls,
   };
 }
 
 function createParamControl(parameter: MethodParameter): PipelineParam {
-  const range = formatRange(parameter.random_default ?? parameter.value_range);
-  const value =
-    parameter.default !== null && parameter.default !== undefined
-      ? String(parameter.default)
-      : parameter.random_default
-        ? ""
-        : "";
-
   return {
     id: parameter.name,
     title: parameter.title,
-    value,
-    range,
+    value: "",
+    placeholder: formatParamPlaceholder(parameter),
     unit: inferUnit(parameter.name),
-    mode: parameter.random_default ? "random" : "fixed",
     type: parameter.type,
+    choices: parameter.choices.map(String),
+    range: parameter.value_range ?? parameter.random_default,
   };
 }
 
 function toOperation(step: PipelineStep): Operation {
   return {
     name: step.name,
-    params: step.randomize ? {} : step.params,
+    params: step.params,
   };
 }
 
@@ -693,6 +752,14 @@ function parseParamValue(value: string, type: string): unknown {
   }
 
   if (type === "rgb_color") {
+    if (/^#[0-9a-fA-F]{6}$/.test(normalized)) {
+      return [
+        Number.parseInt(normalized.slice(1, 3), 16),
+        Number.parseInt(normalized.slice(3, 5), 16),
+        Number.parseInt(normalized.slice(5, 7), 16),
+      ];
+    }
+
     const channels = normalized.split(/[,\s]+/).map((channel) => Number.parseInt(channel, 10));
     return channels.length === 3 && channels.every(Number.isFinite) ? channels : normalized;
   }
@@ -721,8 +788,42 @@ function parseSeedOrNull(value: string): number | null {
   }
 }
 
-function formatRange(range: MethodParameter["random_default"]): string {
-  return range ? `${range.min}-${range.max}` : "";
+function formatParamPlaceholder(parameter: MethodParameter): string {
+  if (parameter.default !== null && parameter.default !== undefined) {
+    return String(parameter.default);
+  }
+
+  if (parameter.random_default) {
+    return `${parameter.random_default.min}-${parameter.random_default.max}`;
+  }
+
+  if (parameter.value_range) {
+    return `${parameter.value_range.min}-${parameter.value_range.max}`;
+  }
+
+  return "";
+}
+
+function getNumericRange(param: PipelineParam): NumericRange {
+  return param.range ?? { min: 0, max: 100 };
+}
+
+function getSliderValue(param: PipelineParam, range: NumericRange): number {
+  const value = Number(param.value);
+  if (Number.isFinite(value)) {
+    return Math.min(range.max, Math.max(range.min, value));
+  }
+
+  const placeholderValue = Number(param.placeholder);
+  if (Number.isFinite(placeholderValue)) {
+    return Math.min(range.max, Math.max(range.min, placeholderValue));
+  }
+
+  return (range.min + range.max) / 2;
+}
+
+function normalizeColorValue(value: string): string {
+  return /^#[0-9a-fA-F]{6}$/.test(value) ? value : "#ffffff";
 }
 
 function inferUnit(name: string): string {

@@ -257,7 +257,8 @@ button:disabled {
 
 .field input,
 .field select,
-.param-row input {
+.param-row input,
+.param-row select {
   width: 100%;
   min-height: 38px;
   border: 1px solid #cfd7d2;
@@ -672,21 +673,6 @@ button:disabled {
   overflow: hidden;
 }
 
-.switch-field {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: #4f5a53;
-  font-size: 12px;
-  font-weight: 780;
-}
-
-.switch-field input {
-  width: 18px;
-  height: 18px;
-  accent-color: #1e5b73;
-}
-
 .param-grid {
   display: grid;
   gap: 1px;
@@ -695,7 +681,7 @@ button:disabled {
 
 .param-row {
   display: grid;
-  grid-template-columns: minmax(90px, 1fr) minmax(110px, 1fr) 68px 36px;
+  grid-template-columns: minmax(90px, 0.9fr) minmax(170px, 1.5fr) 64px 76px;
   gap: 10px;
   align-items: center;
   min-width: 0;
@@ -703,7 +689,7 @@ button:disabled {
   background: #fff;
 }
 
-.param-row span {
+.param-title {
   color: #3a423d;
   font-size: 13px;
   font-weight: 760;
@@ -716,11 +702,61 @@ button:disabled {
   text-transform: uppercase;
 }
 
-.param-row em {
-  color: #69736d;
+.param-reset {
+  min-height: 32px;
+  border: 1px solid #cfd7d2;
+  border-radius: 6px;
+  padding: 0 9px;
+  background: #fff;
+  color: #445049;
   font-size: 12px;
-  font-style: normal;
-  text-align: right;
+  font-weight: 780;
+}
+
+.param-reset:disabled {
+  color: #9aa39d;
+}
+
+.param-control,
+.number-param,
+.color-param {
+  min-width: 0;
+}
+
+.number-param {
+  display: grid;
+  grid-template-columns: minmax(76px, 0.62fr) minmax(90px, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.number-param input[type="range"] {
+  min-height: 24px;
+  padding: 0;
+  accent-color: #1e5b73;
+}
+
+.color-param {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.color-param input[type="color"] {
+  width: 44px;
+  min-height: 38px;
+  padding: 3px;
+}
+
+.color-param code {
+  min-width: 0;
+  overflow: hidden;
+  color: #4f5a53;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .empty-row {
@@ -921,7 +957,7 @@ button:disabled {
   }
 
   .metadata-row mark,
-  .param-row em {
+  .param-reset {
     justify-self: start;
   }
 }
