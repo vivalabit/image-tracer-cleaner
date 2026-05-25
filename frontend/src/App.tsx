@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 
 import { fetchMethods, randomizeImage } from "./api";
@@ -34,54 +34,6 @@ type MetadataRow = {
   output: string;
   status: "kept" | "edited" | "removed";
 };
-
-const starterPipeline: PipelineStep[] = [
-  {
-    id: "resize",
-    title: "Unfixed resize",
-    name: "resize",
-    category: "Geometry",
-    enabled: true,
-    randomize: false,
-    impact: "subtle",
-    params: {
-      scale_x_pct: 101,
-      scale_y_pct: 99,
-    },
-    paramControls: [
-      { id: "scale_x_pct", title: "X scale", value: "101", range: "75-115", unit: "%", mode: "fixed", type: "integer" },
-      { id: "scale_y_pct", title: "Y scale", value: "99", range: "75-115", unit: "%", mode: "fixed", type: "integer" },
-    ],
-  },
-  {
-    id: "noise",
-    title: "Fine noise",
-    name: "interference",
-    category: "Pixels",
-    enabled: true,
-    randomize: false,
-    impact: "subtle",
-    params: {
-      strength: 3,
-    },
-    paramControls: [{ id: "strength", title: "Strength", value: "3", range: "0-255", unit: "", mode: "fixed", type: "integer" }],
-  },
-  {
-    id: "contrast",
-    title: "Contrast trim",
-    name: "sharp",
-    category: "Color",
-    enabled: true,
-    randomize: false,
-    impact: "medium",
-    params: {
-      amount: -4,
-    },
-    paramControls: [{ id: "amount", title: "Amount", value: "-4", range: "-30-30", unit: "%", mode: "fixed", type: "number" }],
-  },
-];
-
-const fallbackAddableMethodNames = ["crop", "rotate", "blur", "border", "pixelization", "hmirror", "vmirror", "invert", "grayscale", "move"];
 
 const metadataRows: Record<MetadataTab, MetadataRow[]> = {
   overview: [
@@ -122,8 +74,8 @@ function App() {
   const [mode, setMode] = useState<AppMode>("manual");
   const [previewMode, setPreviewMode] = useState<PreviewMode>("compare");
   const [metadataTab, setMetadataTab] = useState<MetadataTab>("overview");
-  const [pipeline, setPipeline] = useState<PipelineStep[]>(starterPipeline);
-  const [selectedStepId, setSelectedStepId] = useState(starterPipeline[0].id);
+  const [pipeline, setPipeline] = useState<PipelineStep[]>([]);
+  const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
   const [methods, setMethods] = useState<MethodDefinition[]>([]);
   const [apiStatus, setApiStatus] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -134,6 +86,7 @@ function App() {
   const [outputFormat, setOutputFormat] = useState<OutputFormat>("PNG");
   const [isRendering, setIsRendering] = useState(false);
   const [renderError, setRenderError] = useState("");
+  const nextPipelineStepId = useRef(0);
 
   useEffect(() => {
     let active = true;
@@ -185,12 +138,8 @@ function App() {
   }, [outputBlob]);
 
   const activeSteps = useMemo(() => pipeline.filter((step) => step.enabled), [pipeline]);
-  const selectedStep = pipeline.find((step) => step.id === selectedStepId) ?? pipeline[0] ?? null;
+  const selectedStep = pipeline.find((step) => step.id === selectedStepId) ?? null;
   const methodsByName = useMemo(() => new Map(methods.map((method) => [method.name, method])), [methods]);
-  const addableMethods = useMemo(
-    () => (methods.length > 0 ? methods : fallbackAddableMethodNames.map(createFallbackMethod)),
-    [methods],
-  );
   const recipePreview = useMemo(
     () =>
       JSON.stringify(
@@ -256,8 +205,13 @@ function App() {
   }
 
   function addStep(methodName: string) {
-    const method = methodsByName.get(methodName) ?? createFallbackMethod(methodName);
-    const nextStep = createPipelineStep(method);
+    const method = methodsByName.get(methodName);
+    if (!method) {
+      return;
+    }
+
+    nextPipelineStepId.current += 1;
+    const nextStep = createPipelineStep(method, nextPipelineStepId.current);
 
     setPipeline((current) => [...current, nextStep]);
     setSelectedStepId(nextStep.id);
@@ -265,13 +219,11 @@ function App() {
   }
 
   function removeStep(stepId: string) {
-    setPipeline((current) => {
-      const next = current.filter((step) => step.id !== stepId);
-      if (selectedStepId === stepId && next.length > 0) {
-        setSelectedStepId(next[0].id);
-      }
-      return next;
-    });
+    const next = pipeline.filter((step) => step.id !== stepId);
+    setPipeline(next);
+    if (selectedStepId === stepId) {
+      setSelectedStepId(next[0]?.id ?? null);
+    }
     setOutputBlob(null);
   }
 
@@ -497,11 +449,15 @@ function App() {
           </div>
 
           <div className="add-step-grid">
-            {addableMethods.map((method) => (
-              <button key={method.name} type="button" onClick={() => addStep(method.name)}>
-                + {method.title}
-              </button>
-            ))}
+            {methods.length > 0 ? (
+              methods.map((method) => (
+                <button key={method.name} type="button" onClick={() => addStep(method.name)}>
+                  + {method.title}
+                </button>
+              ))
+            ) : (
+              <div className="empty-row">{apiStatus ? "Operations unavailable" : "Loading operations"}</div>
+            )}
           </div>
         </aside>
       </section>
@@ -666,12 +622,12 @@ function formatPreviewMode(mode: PreviewMode): string {
   return labels[mode];
 }
 
-function createPipelineStep(method: MethodDefinition): PipelineStep {
+function createPipelineStep(method: MethodDefinition, stepNumber: number): PipelineStep {
   const paramControls = method.parameters.map(createParamControl);
   const randomize = paramControls.some((param) => param.mode === "random");
 
   return {
-    id: `${method.name}-${Date.now()}`,
+    id: `${method.name}-${stepNumber}`,
     name: method.name,
     title: method.title,
     category: inferCategory(method.name),
@@ -700,18 +656,6 @@ function createParamControl(parameter: MethodParameter): PipelineParam {
     unit: inferUnit(parameter.name),
     mode: parameter.random_default ? "random" : "fixed",
     type: parameter.type,
-  };
-}
-
-function createFallbackMethod(name: string): MethodDefinition {
-  return {
-    name,
-    legacy_name: name,
-    title: formatMethodTitle(name),
-    description: "",
-    parameters: [],
-    has_settings: false,
-    reversible: false,
   };
 }
 
@@ -816,13 +760,6 @@ function inferImpact(name: string): PipelineStep["impact"] {
     return "medium";
   }
   return "subtle";
-}
-
-function formatMethodTitle(name: string): string {
-  return name
-    .split(/[_-]+/)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
 }
 
 export default App;
