@@ -1,0 +1,15 @@
+Metadata-Version: 2.4
+Name: image-randomizer-backend
+Version: 0.1.0
+Summary: Python backend for the Image Randomizer migration
+Requires-Python: >=3.11
+Requires-Dist: fastapi>=0.115
+Requires-Dist: pillow>=10
+Requires-Dist: pydantic>=2
+Requires-Dist: python-multipart>=0.0.9
+Requires-Dist: uvicorn[standard]>=0.30
+Provides-Extra: dev
+Requires-Dist: httpx>=0.27; extra == "dev"
+Requires-Dist: mypy>=1.11; extra == "dev"
+Requires-Dist: pytest>=8; extra == "dev"
+Requires-Dist: ruff>=0.6; extra == "dev"
