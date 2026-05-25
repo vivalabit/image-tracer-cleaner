@@ -53,7 +53,7 @@ class CorePipelineTest(unittest.TestCase):
         second = apply_pipeline(image, operations, seed=42)
 
         self.assertEqual(first.size, second.size)
-        self.assertEqual(list(first.getdata()), list(second.getdata()))
+        self.assertEqual(first.tobytes(), second.tobytes())
 
     def test_move_preserves_size(self) -> None:
         image = Image.new("RGB", (8, 6), (10, 20, 30))

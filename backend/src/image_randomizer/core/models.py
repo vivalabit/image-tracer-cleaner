@@ -11,10 +11,29 @@ class Operation:
 
 
 @dataclass(frozen=True)
+class NumericRange:
+    min: int | float
+    max: int | float
+
+
+@dataclass(frozen=True)
+class MethodParameter:
+    name: str
+    type: str
+    title: str
+    description: str = ""
+    default: Any | None = None
+    choices: tuple[Any, ...] = ()
+    value_range: NumericRange | None = None
+    random_default: NumericRange | None = None
+
+
+@dataclass(frozen=True)
 class MethodDefinition:
     name: str
     title: str
     description: str
-    legacy_name: str | None = None
+    legacy_name: str
+    parameters: tuple[MethodParameter, ...] = ()
     has_settings: bool = True
-    reversible: bool | None = None
+    reversible: bool = False
