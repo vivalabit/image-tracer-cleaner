@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 
 import { fetchMethods, randomizeImage } from "./api";
-import type { MethodDefinition, MethodParameter, OutputFormat, Recipe, RecipeStep } from "./types";
+import type { MethodDefinition, MethodParameter, Operation, OutputFormat, RandomizeRequest, RecipeStep } from "./types";
 
 type AppMode = "manual" | "random" | "metadata" | "batch";
 type PreviewMode = "compare" | "slider" | "difference";
@@ -67,7 +67,7 @@ const metadataRows: Record<MetadataTab, MetadataRow[]> = {
 
 const endpointRows = [
   { method: "GET", path: "/api/methods", note: "operation registry" },
-  { method: "POST", path: "/api/randomize", note: "multipart recipe" },
+  { method: "POST", path: "/api/randomize", note: "multipart operations" },
 ];
 
 function App() {
@@ -140,19 +140,19 @@ function App() {
   const activeSteps = useMemo(() => pipeline.filter((step) => step.enabled), [pipeline]);
   const selectedStep = pipeline.find((step) => step.id === selectedStepId) ?? null;
   const methodsByName = useMemo(() => new Map(methods.map((method) => [method.name, method])), [methods]);
-  const recipePreview = useMemo(
+  const requestPreview = useMemo(
     () =>
       JSON.stringify(
         {
           file: file ? file.name : null,
+          operations: activeSteps.map(toOperation),
           seed: parseSeedOrNull(seed),
           output_format: outputFormat,
-          steps: pipeline.map(toRecipeStep),
         },
         null,
         2,
       ),
-    [file, outputFormat, pipeline, seed],
+    [activeSteps, file, outputFormat, seed],
   );
 
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
@@ -237,13 +237,13 @@ function App() {
     setRenderError("");
 
     try {
-      const recipe: Recipe = {
+      const request: RandomizeRequest = {
         file,
+        operations: activeSteps.map(toOperation),
         seed: parseSeed(seed),
         output_format: outputFormat,
-        steps: pipeline.map(toRecipeStep),
       };
-      const nextOutput = await randomizeImage(recipe);
+      const nextOutput = await randomizeImage(request);
       setOutputBlob(nextOutput);
     } catch (error) {
       setRenderError(error instanceof Error ? error.message : "Randomize request failed");
@@ -355,12 +355,12 @@ function App() {
 
           <div className={`preview-stage ${previewMode}`}>
             <ImageViewport title="Source" imageUrl={sourceUrl} variant="source" />
-            <ImageViewport title="Output" imageUrl={outputUrl || sourceUrl} variant="output" />
+            <ImageViewport title="Output" imageUrl={outputUrl} variant="output" />
             {previewMode === "slider" ? <div className="slider-handle" aria-hidden="true" /> : null}
           </div>
 
           <div className="metric-strip" aria-label="Render metrics">
-            <Metric label="Recipe steps" value={`${activeSteps.length}`} tone="info" />
+            <Metric label="Active steps" value={`${activeSteps.length}`} tone="info" />
             <Metric label="Format" value={outputFormat} tone="info" />
             <Metric label="Seed" value={seed.trim() || "none"} tone="good" />
             <Metric label="Result" value={renderError ? "error" : outputUrl ? "ready" : "idle"} tone={renderError ? "warn" : "good"} />
@@ -564,7 +564,7 @@ function App() {
               </div>
             ))}
           </div>
-          <pre className="recipe-preview">{recipePreview}</pre>
+          <pre className="recipe-preview">{requestPreview}</pre>
         </section>
       </section>
     </main>
@@ -659,10 +659,9 @@ function createParamControl(parameter: MethodParameter): PipelineParam {
   };
 }
 
-function toRecipeStep(step: PipelineStep): RecipeStep {
+function toOperation(step: PipelineStep): Operation {
   return {
     name: step.name,
-    enabled: step.enabled,
     params: step.randomize ? {} : step.params,
   };
 }

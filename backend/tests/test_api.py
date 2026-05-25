@@ -61,6 +61,27 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(result.size, (3, 2))
         self.assertEqual(result.getpixel((2, 0)), (255, 0, 0))
 
+    def test_randomize_accepts_operations_payload(self) -> None:
+        image = Image.new("RGB", (3, 2), "black")
+        image.putpixel((0, 0), (255, 0, 0))
+
+        response = self.client.post(
+            "/api/randomize",
+            files={"file": ("input.png", _save_png(image), "image/png")},
+            data={
+                "operations": json.dumps([{"name": "hmirror", "params": {}}]),
+                "seed": "42",
+                "output_format": "PNG",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["content-type"], "image/png")
+
+        result = Image.open(BytesIO(response.content))
+        self.assertEqual(result.size, (3, 2))
+        self.assertEqual(result.getpixel((2, 0)), (255, 0, 0))
+
     def test_randomize_skips_disabled_recipe_steps(self) -> None:
         image = Image.new("RGB", (3, 2), "black")
         image.putpixel((0, 0), (255, 0, 0))

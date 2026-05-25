@@ -26,15 +26,18 @@ export type MethodDefinition = {
 
 export type OutputFormat = "PNG" | "JPEG" | "WEBP";
 
-export type RecipeStep = {
+export type Operation = {
   name: string;
-  enabled: boolean;
   params: Record<string, unknown>;
 };
 
-export type Recipe = {
+export type RecipeStep = Operation & {
+  enabled: boolean;
+};
+
+export type RandomizeRequest = {
   file: File;
   seed: number | null;
   output_format: OutputFormat;
-  steps: RecipeStep[];
+  operations: Operation[];
 };

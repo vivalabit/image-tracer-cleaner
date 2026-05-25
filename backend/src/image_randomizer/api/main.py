@@ -6,7 +6,8 @@ from dataclasses import asdict
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 
-from image_randomizer.core.pipeline import apply_pipeline, load_image_bytes, save_image_bytes
+from image_randomizer.core.models import Recipe
+from image_randomizer.core.pipeline import apply_pipeline, load_image_bytes, parse_recipe_step, save_image_bytes
 from image_randomizer.core.recipe import parse_recipe_payload
 from image_randomizer.core.registry import get_method_definitions
 
@@ -26,17 +27,38 @@ def methods() -> dict[str, list[dict[str, object]]]:
 @app.post("/api/randomize")
 async def randomize(
     file: UploadFile = File(...),
-    recipe: str = Form(...),
+    recipe: str | None = Form(None),
+    operations: str = Form("[]"),
+    seed: int | None = Form(None),
+    output_format: str = Form("PNG"),
 ) -> Response:
-    try:
-        recipe_payload = json.loads(recipe)
-    except json.JSONDecodeError as exc:
-        raise HTTPException(status_code=400, detail="recipe must be valid JSON") from exc
+    if recipe is not None:
+        try:
+            recipe_payload = json.loads(recipe)
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=400, detail="recipe must be valid JSON") from exc
 
-    try:
-        parsed_recipe = parse_recipe_payload(recipe_payload)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        try:
+            parsed_recipe = parse_recipe_payload(recipe_payload)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    else:
+        try:
+            operations_payload = json.loads(operations)
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=400, detail="operations must be valid JSON") from exc
+
+        if not isinstance(operations_payload, list):
+            raise HTTPException(status_code=400, detail="operations must be a JSON array")
+
+        try:
+            parsed_recipe = Recipe(
+                seed=seed,
+                output_format=output_format.upper(),
+                steps=tuple(parse_recipe_step(operation) for operation in operations_payload),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     data = await file.read()
     try:

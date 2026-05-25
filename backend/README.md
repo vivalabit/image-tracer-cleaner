@@ -6,7 +6,8 @@ The canonical API is upload-based:
 
 - `GET /api/health` returns service status.
 - `GET /api/methods` returns available operations, their legacy names, reversibility, and parameter metadata.
-- `POST /api/randomize` accepts multipart form data with `file` plus a JSON `recipe` field.
+- `POST /api/randomize` accepts multipart form data with `file` plus either a JSON `recipe` field or
+  the current UI payload: `operations`, optional `seed`, and `output_format`.
 
 Legacy PHP filesystem semantics are not exposed as HTTP endpoints in the Python backend. In particular,
 `?req=randomizeImage&path=...` and server-side reads from an `images/` directory are intentionally not
@@ -35,6 +36,17 @@ The shared recipe contract is:
 Because HTTP upload uses multipart encoding, the browser sends `file` as the multipart file part and
 serializes the remaining recipe fields into the JSON `recipe` form field. Disabled steps are accepted
 and skipped by the backend. `output_format` must be `PNG`, `JPEG`, or `WEBP`.
+
+The frontend can also send active pipeline steps directly as:
+
+```json
+[
+  {"name": "resize", "params": {"scale_x_pct": 101, "scale_y_pct": 99}}
+]
+```
+
+serialized into the multipart `operations` form field, with `seed` and `output_format` as separate
+form fields.
 
 For migration, `image_randomizer.core.legacy` parses legacy query operation flags while preserving order:
 
