@@ -70,6 +70,44 @@ class CorePipelineTest(unittest.TestCase):
 
         self.assertEqual(result.getpixel((0, 0)), (255, 0, 0))
 
+    def test_random_param_specs_are_resolved_on_backend(self) -> None:
+        image = Image.new("RGB", (100, 80), (10, 20, 30))
+
+        result = apply_pipeline(
+            image,
+            [
+                Operation(
+                    "resize",
+                    {
+                        "scale_x_pct": {"mode": "random", "type": "integer", "min": 50, "max": 50},
+                        "scale_y_pct": {"mode": "random", "type": "integer", "min": 25, "max": 25},
+                    },
+                )
+            ],
+            seed=42,
+        )
+
+        self.assertEqual(result.size, (50, 20))
+
+    def test_random_color_specs_are_resolved_on_backend(self) -> None:
+        image = Image.new("RGB", (2, 2), (10, 20, 30))
+
+        result = apply_pipeline(
+            image,
+            [
+                Operation(
+                    "border",
+                    {
+                        "size": 1,
+                        "color": {"mode": "random", "type": "rgb_color", "min": "#010203", "max": "#010203"},
+                    },
+                )
+            ],
+            seed=42,
+        )
+
+        self.assertEqual(result.getpixel((0, 0)), (1, 2, 3))
+
 
 if __name__ == "__main__":
     unittest.main()

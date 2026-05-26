@@ -7,6 +7,7 @@ React + TypeScript + Vite MVP for the Python backend contract.
 - Loads operations from `GET /api/methods`.
 - Uploads one image from the browser.
 - Lets the user build ordered pipeline steps with `name`, `enabled`, and `params`.
+- Supports manual exact parameter values and backend-seeded random min/max parameter ranges.
 - Sends active steps as `operations` through `POST /api/randomize`.
 - Supports an optional seed for reproducible random defaults.
 - Does not include bulk processing or legacy `path=...` flows.

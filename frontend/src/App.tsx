@@ -7,11 +7,15 @@ import type { MethodDefinition, MethodParameter, NumericRange, Operation, Output
 type AppMode = "manual" | "random" | "metadata" | "batch";
 type PreviewMode = "compare" | "slider" | "difference";
 type MetadataTab = "overview" | "exif" | "iptc" | "xmp" | "output";
+type ParamMode = "manual" | "random";
 
 type PipelineParam = {
   id: string;
   title: string;
+  mode: ParamMode;
   value: string;
+  minValue: string;
+  maxValue: string;
   placeholder: string;
   unit: string;
   type: string;
@@ -172,14 +176,14 @@ function App() {
     setOutputBlob(null);
   }
 
-  function updateParam(stepId: string, paramId: string, value: string) {
+  function updateParam(stepId: string, paramId: string, patch: Partial<PipelineParam>) {
     setPipeline((current) =>
       current.map((step) => {
         if (step.id !== stepId) {
           return step;
         }
 
-        const paramControls = step.paramControls.map((param) => (param.id === paramId ? { ...param, value } : param));
+        const paramControls = step.paramControls.map((param) => (param.id === paramId ? { ...param, ...patch } : param));
         const next = { ...step, paramControls };
         return { ...next, params: controlsToParams(paramControls) };
       }),
@@ -188,7 +192,7 @@ function App() {
   }
 
   function clearParam(stepId: string, paramId: string) {
-    updateParam(stepId, paramId, "");
+    updateParam(stepId, paramId, { mode: "manual", value: "", minValue: "", maxValue: "" });
   }
 
   function moveStep(stepId: string, direction: -1 | 1) {
@@ -483,7 +487,7 @@ function App() {
                       key={param.id}
                       param={param}
                       onClear={() => clearParam(selectedStep.id, param.id)}
-                      onChange={(value) => updateParam(selectedStep.id, param.id, value)}
+                      onChange={(patch) => updateParam(selectedStep.id, param.id, patch)}
                     />
                   ))
                 ) : (
@@ -593,22 +597,39 @@ function Metric(props: { label: string; value: string; tone: "good" | "warn" | "
   );
 }
 
-function ParamControl(props: { param: PipelineParam; onChange: (value: string) => void; onClear: () => void }) {
-  const status = props.param.value.trim() === "" ? "backend" : "set";
+function ParamControl(props: { param: PipelineParam; onChange: (patch: Partial<PipelineParam>) => void; onClear: () => void }) {
+  const hasValue = hasParamValue(props.param);
+  const status = hasValue ? props.param.mode : "backend";
 
   return (
     <div className={`param-row ${props.param.type}`}>
       <span className="param-title">{props.param.title}</span>
+      <select
+        className="param-mode"
+        value={props.param.mode}
+        onChange={(event) => props.onChange({ mode: event.target.value as ParamMode })}
+      >
+        <option value="manual">Manual</option>
+        <option value="random">Random</option>
+      </select>
       <div className="param-control">{renderParamInput(props.param, props.onChange)}</div>
       <small>{status}</small>
-      <button type="button" className="param-reset" disabled={status === "backend"} onClick={props.onClear}>
+      <button type="button" className="param-reset" disabled={!hasValue} onClick={props.onClear}>
         Default
       </button>
     </div>
   );
 }
 
-function renderParamInput(param: PipelineParam, onChange: (value: string) => void) {
+function renderParamInput(param: PipelineParam, onChange: (patch: Partial<PipelineParam>) => void) {
+  if (param.mode === "random") {
+    return renderRandomParamInput(param, onChange);
+  }
+
+  return renderManualParamInput(param, onChange);
+}
+
+function renderManualParamInput(param: PipelineParam, onChange: (patch: Partial<PipelineParam>) => void) {
   if (param.type === "integer" || param.type === "number") {
     const range = getNumericRange(param);
     const step = param.type === "integer" ? "1" : "0.1";
@@ -622,7 +643,7 @@ function renderParamInput(param: PipelineParam, onChange: (value: string) => voi
           step={step}
           value={param.value}
           placeholder={param.placeholder}
-          onChange={(event) => onChange(event.target.value)}
+          onChange={(event) => onChange({ value: event.target.value })}
         />
         <input
           type="range"
@@ -630,7 +651,7 @@ function renderParamInput(param: PipelineParam, onChange: (value: string) => voi
           max={range.max}
           step={step}
           value={getSliderValue(param, range)}
-          onChange={(event) => onChange(event.target.value)}
+          onChange={(event) => onChange({ value: event.target.value })}
         />
       </div>
     );
@@ -638,7 +659,7 @@ function renderParamInput(param: PipelineParam, onChange: (value: string) => voi
 
   if (param.type === "enum") {
     return (
-      <select value={param.value} onChange={(event) => onChange(event.target.value)}>
+      <select value={param.value} onChange={(event) => onChange({ value: event.target.value })}>
         <option value="">Backend default</option>
         {param.choices.map((choice) => (
           <option key={choice} value={choice}>
@@ -655,7 +676,7 @@ function renderParamInput(param: PipelineParam, onChange: (value: string) => voi
         <input
           type="color"
           value={normalizeColorValue(param.value)}
-          onChange={(event) => onChange(event.target.value)}
+          onChange={(event) => onChange({ value: event.target.value })}
         />
         <code>{param.value || "backend"}</code>
       </div>
@@ -666,8 +687,79 @@ function renderParamInput(param: PipelineParam, onChange: (value: string) => voi
     <input
       value={param.value}
       placeholder={param.placeholder}
-      onChange={(event) => onChange(event.target.value)}
+      onChange={(event) => onChange({ value: event.target.value })}
     />
+  );
+}
+
+function renderRandomParamInput(param: PipelineParam, onChange: (patch: Partial<PipelineParam>) => void) {
+  if (param.type === "integer" || param.type === "number") {
+    const range = getNumericRange(param);
+    const step = param.type === "integer" ? "1" : "0.1";
+
+    return (
+      <div className="random-number-param">
+        <input
+          aria-label={`${param.title} min`}
+          type="number"
+          min={range.min}
+          max={range.max}
+          step={step}
+          value={param.minValue}
+          placeholder={String(range.min)}
+          onChange={(event) => onChange({ minValue: event.target.value })}
+        />
+        <input
+          aria-label={`${param.title} max`}
+          type="number"
+          min={range.min}
+          max={range.max}
+          step={step}
+          value={param.maxValue}
+          placeholder={String(range.max)}
+          onChange={(event) => onChange({ maxValue: event.target.value })}
+        />
+      </div>
+    );
+  }
+
+  if (param.type === "rgb_color") {
+    return (
+      <div className="random-color-param">
+        <input
+          aria-label={`${param.title} min`}
+          type="color"
+          value={normalizeColorValue(param.minValue || "#000000")}
+          onChange={(event) => onChange({ minValue: event.target.value })}
+        />
+        <input
+          aria-label={`${param.title} max`}
+          type="color"
+          value={normalizeColorValue(param.maxValue || "#ffffff")}
+          onChange={(event) => onChange({ maxValue: event.target.value })}
+        />
+        <code>{param.minValue || "#000000"}..{param.maxValue || "#ffffff"}</code>
+      </div>
+    );
+  }
+
+  if (param.type === "enum") {
+    return <span className="random-choice-summary">{param.choices.join(", ")}</span>;
+  }
+
+  return (
+    <div className="random-number-param">
+      <input
+        aria-label={`${param.title} min`}
+        value={param.minValue}
+        onChange={(event) => onChange({ minValue: event.target.value })}
+      />
+      <input
+        aria-label={`${param.title} max`}
+        value={param.maxValue}
+        onChange={(event) => onChange({ maxValue: event.target.value })}
+      />
+    </div>
   );
 }
 
@@ -709,7 +801,10 @@ function createParamControl(parameter: MethodParameter): PipelineParam {
   return {
     id: parameter.name,
     title: parameter.title,
+    mode: "manual",
     value: "",
+    minValue: formatRandomMin(parameter),
+    maxValue: formatRandomMax(parameter),
     placeholder: formatParamPlaceholder(parameter),
     unit: inferUnit(parameter.name),
     type: parameter.type,
@@ -727,12 +822,66 @@ function toOperation(step: PipelineStep): Operation {
 
 function controlsToParams(params: PipelineParam[]): Record<string, unknown> {
   return params.reduce<Record<string, unknown>>((result, param) => {
-    const value = parseParamValue(param.value, param.type);
+    const value = serializeParamValue(param);
     if (value !== undefined) {
       result[param.id] = value;
     }
     return result;
   }, {});
+}
+
+function serializeParamValue(param: PipelineParam): unknown {
+  if (param.mode === "random") {
+    return serializeRandomParamValue(param);
+  }
+
+  return parseParamValue(param.value, param.type);
+}
+
+function serializeRandomParamValue(param: PipelineParam): unknown {
+  if (param.type === "enum") {
+    return param.choices.length > 0 ? { mode: "random", type: "enum", choices: param.choices } : undefined;
+  }
+
+  if (param.type === "rgb_color") {
+    return {
+      mode: "random",
+      type: "rgb_color",
+      min: param.minValue || "#000000",
+      max: param.maxValue || "#ffffff",
+    };
+  }
+
+  const range = getNumericRange(param);
+  const min = parseRandomNumber(param.minValue, range.min);
+  const max = parseRandomNumber(param.maxValue, range.max);
+  if (min === undefined || max === undefined) {
+    return undefined;
+  }
+
+  return { mode: "random", type: param.type, min, max };
+}
+
+function parseRandomNumber(value: string, fallback: number): number | undefined {
+  const normalized = value.trim();
+  if (normalized === "") {
+    return fallback;
+  }
+
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function hasParamValue(param: PipelineParam): boolean {
+  if (param.mode === "manual") {
+    return param.value.trim() !== "";
+  }
+
+  if (param.type === "enum") {
+    return param.choices.length > 0;
+  }
+
+  return true;
 }
 
 function parseParamValue(value: string, type: string): unknown {
@@ -802,6 +951,24 @@ function formatParamPlaceholder(parameter: MethodParameter): string {
   }
 
   return "";
+}
+
+function formatRandomMin(parameter: MethodParameter): string {
+  if (parameter.type === "rgb_color") {
+    return "#000000";
+  }
+
+  const range = parameter.random_default ?? parameter.value_range;
+  return range ? String(range.min) : "";
+}
+
+function formatRandomMax(parameter: MethodParameter): string {
+  if (parameter.type === "rgb_color") {
+    return "#ffffff";
+  }
+
+  const range = parameter.random_default ?? parameter.value_range;
+  return range ? String(range.max) : "";
 }
 
 function getNumericRange(param: PipelineParam): NumericRange {

@@ -681,7 +681,7 @@ button:disabled {
 
 .param-row {
   display: grid;
-  grid-template-columns: minmax(90px, 0.9fr) minmax(170px, 1.5fr) 64px 76px;
+  grid-template-columns: minmax(88px, 0.8fr) 92px minmax(190px, 1.6fr) 64px 76px;
   gap: 10px;
   align-items: center;
   min-width: 0;
@@ -719,37 +719,49 @@ button:disabled {
 
 .param-control,
 .number-param,
-.color-param {
+.color-param,
+.random-number-param,
+.random-color-param {
   min-width: 0;
 }
 
-.number-param {
+.number-param,
+.random-number-param {
   display: grid;
   grid-template-columns: minmax(76px, 0.62fr) minmax(90px, 1fr);
   gap: 8px;
   align-items: center;
 }
 
-.number-param input[type="range"] {
+.number-param input[type="range"],
+.random-number-param input[type="range"] {
   min-height: 24px;
   padding: 0;
   accent-color: #1e5b73;
 }
 
-.color-param {
+.color-param,
+.random-color-param {
   display: grid;
   grid-template-columns: 44px minmax(0, 1fr);
   gap: 8px;
   align-items: center;
 }
 
-.color-param input[type="color"] {
+.random-color-param {
+  grid-template-columns: 44px 44px minmax(0, 1fr);
+}
+
+.color-param input[type="color"],
+.random-color-param input[type="color"] {
   width: 44px;
   min-height: 38px;
   padding: 3px;
 }
 
-.color-param code {
+.color-param code,
+.random-color-param code,
+.random-choice-summary {
   min-width: 0;
   overflow: hidden;
   color: #4f5a53;
@@ -757,6 +769,10 @@ button:disabled {
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.random-choice-summary {
+  display: block;
 }
 
 .empty-row {
