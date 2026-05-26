@@ -144,6 +144,15 @@ button:disabled {
   color: #2e3831;
 }
 
+.primary-button:disabled,
+.ghost-button:disabled,
+.preset-list button:disabled,
+.add-step-grid button:disabled {
+  border-color: #d8ded9;
+  background: #eef1ee;
+  color: #929b95;
+}
+
 .small-button {
   min-height: 32px;
   padding-inline: 10px;
@@ -293,6 +302,34 @@ button:disabled {
 .preset-list {
   display: grid;
   gap: 8px;
+}
+
+.workflow-actions {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #dce2de;
+  border-radius: 8px;
+  padding: 12px;
+  background: #fbfcfb;
+}
+
+.workflow-actions button {
+  width: 100%;
+}
+
+.workflow-actions small {
+  color: #68706a;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.recipe-count {
+  border-radius: 999px;
+  padding: 5px 9px;
+  background: #eef2f5;
+  color: #1e5b73;
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .preview-panel {
