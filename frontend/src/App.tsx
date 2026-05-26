@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 
 import { analyzeImages, fetchMethods, randomizeImage, readImageMetadata } from "./api";
@@ -204,9 +204,13 @@ function App() {
   const [outputFormat, setOutputFormat] = useState<OutputFormat>("PNG");
   const [isRendering, setIsRendering] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [isPreviewDirty, setIsPreviewDirty] = useState(false);
   const [renderError, setRenderError] = useState("");
   const [recipeMessage, setRecipeMessage] = useState("");
   const nextPipelineStepId = useRef(0);
+  const outputUrlRef = useRef("");
+  const previewAbortController = useRef<AbortController | null>(null);
+  const previewRequestId = useRef(0);
 
   useEffect(() => {
     let active = true;
@@ -232,12 +236,16 @@ function App() {
   }, []);
 
   useEffect(() => {
+    previewRequestId.current += 1;
+    previewAbortController.current?.abort();
+    previewAbortController.current = null;
+
     if (!file) {
       setSourceUrl("");
-      setOutputBlob(null);
-      setAnalysis(null);
-      setAnalysisError("");
-      setIsAnalyzing(false);
+      clearRenderedOutput();
+      setIsPreviewDirty(false);
+      setRenderError("");
+      setIsRendering(false);
       setMetadata(null);
       setMetadataError("");
       setIsReadingMetadata(false);
@@ -246,7 +254,8 @@ function App() {
 
     const nextUrl = URL.createObjectURL(file);
     setSourceUrl(nextUrl);
-    setOutputBlob(null);
+    clearRenderedOutput();
+    setIsPreviewDirty(true);
 
     return () => URL.revokeObjectURL(nextUrl);
   }, [file]);
@@ -285,20 +294,15 @@ function App() {
     };
   }, [file]);
 
-  useEffect(() => {
-    if (!outputBlob) {
-      setOutputUrl("");
-      setAnalysis(null);
-      setAnalysisError("");
-      setIsAnalyzing(false);
-      return;
-    }
-
-    const nextUrl = URL.createObjectURL(outputBlob);
-    setOutputUrl(nextUrl);
-
-    return () => URL.revokeObjectURL(nextUrl);
-  }, [outputBlob]);
+  useEffect(
+    () => () => {
+      previewAbortController.current?.abort();
+      if (outputUrlRef.current) {
+        URL.revokeObjectURL(outputUrlRef.current);
+      }
+    },
+    [],
+  );
 
   const activeSteps = useMemo(() => pipeline.filter((step) => step.enabled), [pipeline]);
   const selectedStep = pipeline.find((step) => step.id === selectedStepId) ?? null;
@@ -321,6 +325,89 @@ function App() {
       ),
     [activeSteps, batchItems, file, mode, outputFormat, seed],
   );
+  const renderPreview = useCallback(async (): Promise<Blob | null> => {
+    const requestId = previewRequestId.current + 1;
+    previewRequestId.current = requestId;
+    const isCurrentRequest = () => previewRequestId.current === requestId;
+
+    if (!file) {
+      previewAbortController.current?.abort();
+      previewAbortController.current = null;
+      setRenderError("Choose an image first.");
+      return null;
+    }
+
+    previewAbortController.current?.abort();
+    const abortController = new AbortController();
+    previewAbortController.current = abortController;
+
+    setIsRendering(true);
+    setRenderError("");
+    setAnalysis(null);
+    setAnalysisError("");
+    setIsAnalyzing(false);
+
+    try {
+      const request: RandomizeRequest = {
+        file,
+        operations: activeSteps.map(toOperation),
+        seed: parseSeed(seed),
+        output_format: outputFormat,
+      };
+      const nextOutput = await randomizeImage(request, abortController.signal);
+      if (!isCurrentRequest()) {
+        return null;
+      }
+
+      commitRenderedOutput(nextOutput);
+      setIsAnalyzing(true);
+      try {
+        const nextAnalysis = await analyzeImages(file, nextOutput, abortController.signal);
+        if (isCurrentRequest()) {
+          setAnalysis(nextAnalysis);
+        }
+      } catch (error) {
+        if (isCurrentRequest()) {
+          setAnalysisError(error instanceof Error ? error.message : "Analyze request failed");
+        }
+      } finally {
+        if (isCurrentRequest()) {
+          setIsAnalyzing(false);
+        }
+      }
+
+      return isCurrentRequest() ? nextOutput : null;
+    } catch (error) {
+      if (isAbortError(error)) {
+        return null;
+      }
+      if (isCurrentRequest()) {
+        setRenderError(error instanceof Error ? error.message : "Preview request failed");
+        setIsAnalyzing(false);
+      }
+      return null;
+    } finally {
+      if (isCurrentRequest()) {
+        setIsRendering(false);
+        if (previewAbortController.current === abortController) {
+          previewAbortController.current = null;
+        }
+      }
+    }
+  }, [activeSteps, file, outputFormat, seed]);
+
+  useEffect(() => {
+    if (!file) {
+      return;
+    }
+
+    const previewTimer = window.setTimeout(() => {
+      void renderPreview();
+    }, 80);
+
+    return () => window.clearTimeout(previewTimer);
+  }, [file, renderPreview]);
+
   const metricError = renderError || analysisError;
   const hasBatchFiles = batchItems.length > 0;
   const primaryActionLabel = mode === "batch" ? (isExporting ? "Exporting" : "Export ZIP") : isExporting ? "Exporting" : "Export";
@@ -328,10 +415,8 @@ function App() {
     mode === "batch"
       ? !hasBatchFiles || isBatchRunning || isExporting
       : !file || isRendering || isExporting;
-  const previewActionLabel =
-    mode === "batch" ? (isBatchRunning ? "Processing batch" : "Process batch") : isRendering ? "Rendering preview" : "Preview output";
-  const previewActionDisabled =
-    mode === "batch" ? !hasBatchFiles || isBatchRunning || isExporting : !file || isRendering || isExporting;
+  const batchProcessActionLabel = isBatchRunning ? "Processing batch" : "Process batch";
+  const batchProcessActionDisabled = !hasBatchFiles || isBatchRunning || isExporting;
   const presetActionDisabled = methods.length === 0 || isRendering || isBatchRunning || isExporting;
 
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
@@ -341,15 +426,53 @@ function App() {
   function handleBatchFilesChange(event: ChangeEvent<HTMLInputElement>) {
     const nextFiles = Array.from(event.target.files ?? []);
     const nextItems = nextFiles.map((nextFile, index) => createBatchItem(nextFile, outputFormat, index));
+    previewRequestId.current += 1;
+    previewAbortController.current?.abort();
+    previewAbortController.current = null;
     setBatchItems(nextItems);
     setBatchError("");
     setFile(nextFiles[0] ?? null);
-    setOutputBlob(null);
+    clearRenderedOutput();
   }
 
-  function invalidateRenderedOutput() {
+  function invalidateRenderedOutput(nextFormat: OutputFormat = outputFormat) {
+    previewRequestId.current += 1;
+    previewAbortController.current?.abort();
+    previewAbortController.current = null;
+    setIsPreviewDirty(Boolean(file));
+    setRenderError("");
+    setAnalysisError("");
+    setIsAnalyzing(false);
+    resetBatchResults(nextFormat);
+  }
+
+  function commitRenderedOutput(nextOutput: Blob) {
+    const nextUrl = URL.createObjectURL(nextOutput);
+    const previousUrl = outputUrlRef.current;
+
+    outputUrlRef.current = nextUrl;
+    setOutputBlob(nextOutput);
+    setOutputUrl(nextUrl);
+    setIsPreviewDirty(false);
+
+    if (previousUrl) {
+      window.setTimeout(() => URL.revokeObjectURL(previousUrl), 500);
+    }
+  }
+
+  function clearRenderedOutput() {
+    const previousUrl = outputUrlRef.current;
+
+    outputUrlRef.current = "";
     setOutputBlob(null);
-    resetBatchResults();
+    setOutputUrl("");
+    setAnalysis(null);
+    setAnalysisError("");
+    setIsAnalyzing(false);
+
+    if (previousUrl) {
+      URL.revokeObjectURL(previousUrl);
+    }
   }
 
   function resetBatchResults(nextFormat: OutputFormat = outputFormat) {
@@ -438,49 +561,6 @@ function App() {
     invalidateRenderedOutput();
   }
 
-  async function renderPreview(): Promise<Blob | null> {
-    if (!file) {
-      setRenderError("Choose an image first.");
-      return null;
-    }
-
-    setIsRendering(true);
-    setRenderError("");
-    setAnalysis(null);
-    setAnalysisError("");
-
-    try {
-      const request: RandomizeRequest = {
-        file,
-        operations: activeSteps.map(toOperation),
-        seed: parseSeed(seed),
-        output_format: outputFormat,
-      };
-      const nextOutput = await randomizeImage(request);
-      setOutputBlob(nextOutput);
-      setIsAnalyzing(true);
-      try {
-        const nextAnalysis = await analyzeImages(file, nextOutput);
-        setAnalysis(nextAnalysis);
-      } catch (error) {
-        setAnalysisError(error instanceof Error ? error.message : "Analyze request failed");
-      } finally {
-        setIsAnalyzing(false);
-      }
-      return nextOutput;
-    } catch (error) {
-      setRenderError(error instanceof Error ? error.message : "Preview request failed");
-      setIsAnalyzing(false);
-      return null;
-    } finally {
-      setIsRendering(false);
-    }
-  }
-
-  async function handlePreviewOutput() {
-    await renderPreview();
-  }
-
   function applyPreset(presetId: PresetId) {
     const preset = presetDefinitions.find((definition) => definition.id === presetId);
     if (!preset) {
@@ -490,7 +570,7 @@ function App() {
     const nextSteps = createPresetPipeline(preset.steps, methodsByName, nextPipelineStepId);
     setPipeline(nextSteps);
     setSelectedStepId(nextSteps[0]?.id ?? null);
-    setRecipeMessage(`${preset.title} recipe loaded. Preview output to render it.`);
+    setRecipeMessage(`${preset.title} recipe loaded. Preview updates automatically.`);
     invalidateRenderedOutput();
   }
 
@@ -520,7 +600,7 @@ function App() {
     setPipeline(nextSteps);
     setSelectedStepId(nextSteps[0]?.id ?? null);
     setMode("random");
-    setRecipeMessage("Random visual preset generated. Preview output to check the result.");
+    setRecipeMessage("Random visual preset generated. Preview updates automatically.");
     invalidateRenderedOutput();
   }
 
@@ -532,7 +612,7 @@ function App() {
 
     setIsExporting(true);
     try {
-      const blob = outputBlob ?? (await renderPreview());
+      const blob = outputBlob && !isPreviewDirty ? outputBlob : await renderPreview();
       if (!blob) {
         return;
       }
@@ -726,8 +806,7 @@ function App() {
               onChange={(event) => {
                 const nextFormat = event.target.value as OutputFormat;
                 setOutputFormat(nextFormat);
-                setOutputBlob(null);
-                resetBatchResults(nextFormat);
+                invalidateRenderedOutput(nextFormat);
               }}
             >
               <option>PNG</option>
@@ -738,14 +817,11 @@ function App() {
 
           <div className="workflow-actions" aria-label="Workflow actions">
             <span className="eyebrow">Workflow</span>
-            <button
-              type="button"
-              className="primary-button"
-              disabled={previewActionDisabled}
-              onClick={mode === "batch" ? handleProcessBatch : handlePreviewOutput}
-            >
-              {previewActionLabel}
-            </button>
+            {mode === "batch" ? (
+              <button type="button" className="primary-button" disabled={batchProcessActionDisabled} onClick={handleProcessBatch}>
+                {batchProcessActionLabel}
+              </button>
+            ) : null}
             <button
               type="button"
               className="ghost-button"
@@ -754,7 +830,7 @@ function App() {
             >
               Generate visual preset
             </button>
-            <small>{recipeMessage || "Generate changes the recipe. Preview renders the current recipe."}</small>
+            <small>{recipeMessage || "Recipe changes render automatically on the preview image."}</small>
           </div>
 
           <div className="preset-list" aria-label="Presets">
@@ -1916,6 +1992,10 @@ function parseSeedOrNull(value: string): number | null {
   } catch {
     return null;
   }
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
 }
 
 function formatParamPlaceholder(parameter: MethodParameter): string {

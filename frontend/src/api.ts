@@ -15,7 +15,7 @@ export async function fetchMethods(): Promise<MethodDefinition[]> {
   return payload.methods;
 }
 
-export async function randomizeImage(input: RandomizeRequest): Promise<Blob> {
+export async function randomizeImage(input: RandomizeRequest, signal?: AbortSignal): Promise<Blob> {
   const formData = new FormData();
   formData.append("file", input.file);
   formData.append("operations", JSON.stringify(input.operations));
@@ -28,6 +28,7 @@ export async function randomizeImage(input: RandomizeRequest): Promise<Blob> {
   const response = await fetch("/api/randomize", {
     method: "POST",
     body: formData,
+    signal,
   });
 
   if (!response.ok) {
@@ -55,7 +56,7 @@ export async function readImageMetadata(file: File): Promise<ImageMetadata> {
   return response.json() as Promise<ImageMetadata>;
 }
 
-export async function analyzeImages(original: File, output: Blob): Promise<ImageAnalysis> {
+export async function analyzeImages(original: File, output: Blob, signal?: AbortSignal): Promise<ImageAnalysis> {
   const formData = new FormData();
   formData.append("original", original);
   formData.append("output", output, "output");
@@ -63,6 +64,7 @@ export async function analyzeImages(original: File, output: Blob): Promise<Image
   const response = await fetch("/api/analyze", {
     method: "POST",
     body: formData,
+    signal,
   });
 
   if (!response.ok) {
