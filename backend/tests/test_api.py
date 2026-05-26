@@ -37,6 +37,14 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(crop["parameters"][0]["name"], "top_pct")
         self.assertEqual(crop["parameters"][0]["random_default"], {"min": 5, "max": 15})
 
+        metadata = by_name["metadata"]
+        self.assertEqual(metadata["parameters"][0]["name"], "strip_gps")
+        self.assertEqual(metadata["parameters"][0]["type"], "boolean")
+        self.assertEqual(metadata["parameters"][1]["name"], "strip_all")
+        self.assertEqual(metadata["parameters"][2]["name"], "creator")
+        self.assertEqual(metadata["parameters"][2]["type"], "string")
+        self.assertEqual(metadata["parameters"][3]["default"], "Image Randomizer")
+
     def test_metadata_read_returns_read_only_metadata(self) -> None:
         image = Image.new("RGB", (4, 3), "black")
         payload = _save_png_with_metadata(image)
@@ -145,6 +153,112 @@ class ApiTest(unittest.TestCase):
 
         result = Image.open(BytesIO(response.content))
         self.assertEqual(result.getpixel((0, 0)), (255, 0, 0))
+
+    def test_randomize_metadata_step_edits_metadata(self) -> None:
+        image = Image.new("RGB", (3, 2), "black")
+
+        response = self.client.post(
+            "/api/randomize",
+            files={"file": ("input.jpg", _save_jpeg_with_exif(image), "image/jpeg")},
+            data={
+                "operations": json.dumps(
+                    [
+                        {
+                            "name": "metadata",
+                            "params": {
+                                "strip_gps": True,
+                                "strip_all": False,
+                                "creator": "",
+                                "software": "Image Randomizer",
+                            },
+                        }
+                    ]
+                ),
+                "output_format": "JPEG",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        metadata_response = self.client.post(
+            "/api/metadata/read",
+            files={"file": ("output.jpg", response.content, "image/jpeg")},
+        )
+        metadata = metadata_response.json()
+
+        self.assertNotIn("Artist", metadata["exif"])
+        self.assertEqual(metadata["exif"]["Software"], "Image Randomizer")
+
+    def test_randomize_metadata_step_strips_gps_xmp(self) -> None:
+        image = Image.new("RGB", (3, 2), "black")
+
+        response = self.client.post(
+            "/api/randomize",
+            files={"file": ("input.png", _save_png_with_metadata(image), "image/png")},
+            data={
+                "operations": json.dumps(
+                    [
+                        {
+                            "name": "metadata",
+                            "params": {
+                                "strip_gps": True,
+                                "strip_all": False,
+                                "creator": "",
+                                "software": "Image Randomizer",
+                            },
+                        }
+                    ]
+                ),
+                "output_format": "PNG",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        metadata_response = self.client.post(
+            "/api/metadata/read",
+            files={"file": ("output.png", response.content, "image/png")},
+        )
+        metadata = metadata_response.json()
+
+        self.assertFalse(metadata["gps_presence"])
+        self.assertEqual(metadata["xmp"], {})
+        self.assertEqual(metadata["exif"]["Software"], "Image Randomizer")
+
+    def test_randomize_metadata_step_strips_all_metadata(self) -> None:
+        image = Image.new("RGB", (3, 2), "black")
+
+        response = self.client.post(
+            "/api/randomize",
+            files={"file": ("input.png", _save_png_with_metadata(image), "image/png")},
+            data={
+                "operations": json.dumps(
+                    [
+                        {
+                            "name": "metadata",
+                            "params": {
+                                "strip_all": True,
+                                "creator": "",
+                                "software": "",
+                            },
+                        }
+                    ]
+                ),
+                "output_format": "PNG",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        metadata_response = self.client.post(
+            "/api/metadata/read",
+            files={"file": ("output.png", response.content, "image/png")},
+        )
+        metadata = metadata_response.json()
+
+        self.assertEqual(metadata["exif"], {})
+        self.assertEqual(metadata["xmp"], {})
+        self.assertIsNone(metadata["color_profile"])
 
     def test_randomize_requires_recipe_object(self) -> None:
         image = Image.new("RGB", (3, 2), "black")

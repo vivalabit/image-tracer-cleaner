@@ -22,6 +22,7 @@ class CorePipelineTest(unittest.TestCase):
         self.assertIn("fixresize", names)
         self.assertIn("eskiz", names)
         self.assertIn("pixelization", names)
+        self.assertIn("metadata", names)
 
     def test_horizontal_mirror(self) -> None:
         image = Image.new("RGB", (4, 2), "black")
@@ -107,6 +108,14 @@ class CorePipelineTest(unittest.TestCase):
         )
 
         self.assertEqual(result.getpixel((0, 0)), (1, 2, 3))
+
+    def test_metadata_string_false_does_not_strip_gps(self) -> None:
+        image = Image.new("RGB", (2, 2), (10, 20, 30))
+        image.info["XML:com.adobe.xmp"] = '<rdf:Description exif:GPSLatitude="46,12N" />'
+
+        result = apply_pipeline(image, [Operation("metadata", {"strip_gps": "false"})])
+
+        self.assertIn("XML:com.adobe.xmp", result.info)
 
 
 if __name__ == "__main__":

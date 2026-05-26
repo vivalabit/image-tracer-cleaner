@@ -64,6 +64,23 @@ the request seed before the operation runs:
 ]
 ```
 
+Metadata edits are regular pipeline steps. The `metadata` operation can strip GPS metadata, strip all
+metadata, remove or set the creator field, and set output software metadata:
+
+```json
+[
+  {
+    "name": "metadata",
+    "params": {
+      "strip_gps": true,
+      "strip_all": false,
+      "creator": "",
+      "software": "Image Randomizer"
+    }
+  }
+]
+```
+
 The metadata read endpoint returns:
 
 ```json

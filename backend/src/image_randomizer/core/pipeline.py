@@ -5,7 +5,7 @@ from collections.abc import Iterable, Mapping
 from io import BytesIO
 from typing import Any
 
-from PIL import Image
+from PIL import Image, PngImagePlugin
 
 from image_randomizer.core.models import Operation, RecipeStep
 from image_randomizer.core.operations import apply_operation
@@ -147,5 +147,46 @@ def save_image_bytes(image: Image.Image, output_format: str = "PNG") -> bytes:
         image = image.convert("RGB")
 
     buffer = BytesIO()
-    image.save(buffer, format=normalized_format)
+    image.save(buffer, format=normalized_format, **get_save_metadata(image, normalized_format))
     return buffer.getvalue()
+
+
+def get_save_metadata(image: Image.Image, output_format: str) -> dict[str, object]:
+    metadata: dict[str, object] = {}
+
+    icc_profile = image.info.get("icc_profile")
+    if isinstance(icc_profile, bytes):
+        metadata["icc_profile"] = icc_profile
+
+    exif = image.info.get("exif")
+    if isinstance(exif, bytes) and output_format in {"JPEG", "WEBP", "PNG"}:
+        metadata["exif"] = exif
+
+    xmp = image.info.get("xmp")
+    if isinstance(xmp, bytes | str) and output_format in {"JPEG", "WEBP"}:
+        metadata["xmp"] = xmp
+
+    if output_format == "PNG":
+        pnginfo = build_png_info(image)
+        if pnginfo is not None:
+            metadata["pnginfo"] = pnginfo
+
+    return metadata
+
+
+def build_png_info(image: Image.Image) -> PngImagePlugin.PngInfo | None:
+    pnginfo = PngImagePlugin.PngInfo()
+    has_text = False
+
+    for key in ("XML:com.adobe.xmp", "Creator", "Software"):
+        value = image.info.get(key)
+        if isinstance(value, bytes):
+            try:
+                value = value.decode("utf-8")
+            except UnicodeDecodeError:
+                continue
+        if isinstance(value, str):
+            pnginfo.add_text(key, value)
+            has_text = True
+
+    return pnginfo if has_text else None

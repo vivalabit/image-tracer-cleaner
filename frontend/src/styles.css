@@ -717,11 +717,25 @@ button:disabled {
   color: #9aa39d;
 }
 
+.param-mode-label {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  border: 1px solid #d8ded9;
+  border-radius: 6px;
+  padding: 0 9px;
+  background: #f7f8f6;
+  color: #68706a;
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .param-control,
 .number-param,
 .color-param,
 .random-number-param,
-.random-color-param {
+.random-color-param,
+.toggle-param {
   min-width: 0;
 }
 
@@ -773,6 +787,22 @@ button:disabled {
 
 .random-choice-summary {
   display: block;
+}
+
+.toggle-param {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  color: #445049;
+  font-size: 13px;
+  font-weight: 720;
+}
+
+.toggle-param input[type="checkbox"] {
+  width: 18px;
+  min-height: 18px;
+  padding: 0;
+  accent-color: #1e5b73;
 }
 
 .empty-row {

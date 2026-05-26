@@ -288,6 +288,43 @@ METHOD_DEFINITIONS: tuple[MethodDefinition, ...] = (
         ),
         reversible=True,
     ),
+    MethodDefinition(
+        name="metadata",
+        legacy_name="metadata",
+        title="Metadata",
+        description="Edit output metadata without changing pixels.",
+        parameters=(
+            _parameter(
+                "strip_gps",
+                "boolean",
+                "Strip GPS",
+                description="Remove GPS fields from EXIF/XMP metadata.",
+                default=True,
+            ),
+            _parameter(
+                "strip_all",
+                "boolean",
+                "Strip all",
+                description="Remove all metadata before applying explicit metadata fields.",
+                default=False,
+            ),
+            _parameter(
+                "creator",
+                "string",
+                "Creator",
+                description="Creator metadata. Empty removes the field.",
+                default="",
+            ),
+            _parameter(
+                "software",
+                "string",
+                "Software",
+                description="Software metadata written to output.",
+                default="Image Randomizer",
+            ),
+        ),
+        reversible=False,
+    ),
 )
 
 

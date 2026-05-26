@@ -4,7 +4,7 @@ import random
 from collections.abc import Callable
 from typing import Any
 
-from PIL import Image, ImageChops, ImageEnhance, ImageFilter, ImageOps
+from PIL import ExifTags, Image, ImageChops, ImageEnhance, ImageFilter, ImageOps
 
 from image_randomizer.core.registry import normalize_method_name
 
@@ -125,6 +125,25 @@ def move(image: Image.Image, rng: random.Random, params: dict[str, Any]) -> Imag
     return ImageChops.offset(image, move_x, move_y)
 
 
+def edit_metadata(image: Image.Image, rng: random.Random, params: dict[str, Any]) -> Image.Image:
+    result = image.copy()
+    result.info.update(image.info)
+
+    strip_all = coerce_metadata_bool(params.get("strip_all"), default=False)
+    strip_gps = coerce_metadata_bool(params.get("strip_gps"), default=True)
+    if strip_all:
+        result.info.clear()
+    elif strip_gps:
+        strip_gps_info(result)
+
+    if "creator" in params:
+        set_metadata_text(result, ExifTags.Base.Artist, "Creator", str(params["creator"]))
+    if "software" in params:
+        set_metadata_text(result, ExifTags.Base.Software, "Software", str(params["software"]))
+
+    return result
+
+
 OPERATION_FUNCTIONS: dict[str, OperationFn] = {
     "hmirror": horizontal_mirror,
     "vmirror": vertical_mirror,
@@ -141,6 +160,7 @@ OPERATION_FUNCTIONS: dict[str, OperationFn] = {
     "eskiz": sketch,
     "pixelization": pixelization,
     "move": move,
+    "metadata": edit_metadata,
 }
 
 
@@ -150,7 +170,10 @@ def apply_operation(image: Image.Image, name: str, rng: random.Random, params: d
         operation = OPERATION_FUNCTIONS[normalized_name]
     except KeyError as exc:
         raise ValueError(f"Unknown image operation: {name}") from exc
-    return operation(image, rng, params)
+    result = operation(image, rng, params)
+    if normalized_name != "metadata":
+        result.info.update(image.info)
+    return result
 
 
 def _resize_percent(image: Image.Image, scale_x: int, scale_y: int) -> Image.Image:
@@ -160,3 +183,45 @@ def _resize_percent(image: Image.Image, scale_x: int, scale_y: int) -> Image.Ima
         max(1, round(height * scale_y / 100)),
     )
     return image.resize(new_size, Image.Resampling.BILINEAR)
+
+
+def strip_gps_info(image: Image.Image) -> None:
+    exif = image.getexif()
+    if exif and ExifTags.IFD.GPSInfo in exif:
+        del exif[ExifTags.IFD.GPSInfo]
+        image.info["exif"] = exif.tobytes()
+
+    for key in ("XML:com.adobe.xmp", "xmp"):
+        value = image.info.get(key)
+        if value is not None and "GPS" in str(value):
+            image.info.pop(key, None)
+
+
+def coerce_metadata_bool(value: object, *, default: bool) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "off"}:
+            return False
+    return bool(value)
+
+
+def set_metadata_text(image: Image.Image, exif_tag: int, png_key: str, value: str) -> None:
+    exif = image.getexif()
+    if value:
+        exif[exif_tag] = value
+        image.info[png_key] = value
+    else:
+        if exif_tag in exif:
+            del exif[exif_tag]
+        image.info.pop(png_key, None)
+
+    if exif:
+        image.info["exif"] = exif.tobytes()
+    else:
+        image.info.pop("exif", None)

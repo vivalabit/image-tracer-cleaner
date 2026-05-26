@@ -9,6 +9,7 @@ React + TypeScript + Vite MVP for the Python backend contract.
 - Reads uploaded image metadata through `POST /api/metadata/read`.
 - Lets the user build ordered pipeline steps with `name`, `enabled`, and `params`.
 - Supports manual exact parameter values and backend-seeded random min/max parameter ranges.
+- Builds boolean and string metadata controls from the backend method registry.
 - Sends active steps as `operations` through `POST /api/randomize`.
 - Supports an optional seed for reproducible random defaults.
 - Does not include bulk processing or legacy `path=...` flows.

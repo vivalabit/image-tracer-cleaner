@@ -30,6 +30,8 @@ type PipelineParam = {
   type: string;
   choices: string[];
   range: NumericRange | null;
+  randomizable: boolean;
+  includeWhenEmpty: boolean;
 };
 
 type PipelineStep = RecipeStep & {
@@ -622,14 +624,18 @@ function ParamControl(props: { param: PipelineParam; onChange: (patch: Partial<P
   return (
     <div className={`param-row ${props.param.type}`}>
       <span className="param-title">{props.param.title}</span>
-      <select
-        className="param-mode"
-        value={props.param.mode}
-        onChange={(event) => props.onChange({ mode: event.target.value as ParamMode })}
-      >
-        <option value="manual">Manual</option>
-        <option value="random">Random</option>
-      </select>
+      {props.param.randomizable ? (
+        <select
+          className="param-mode"
+          value={props.param.mode}
+          onChange={(event) => props.onChange({ mode: event.target.value as ParamMode })}
+        >
+          <option value="manual">Manual</option>
+          <option value="random">Random</option>
+        </select>
+      ) : (
+        <span className="param-mode-label">Manual</span>
+      )}
       <div className="param-control">{renderParamInput(props.param, props.onChange)}</div>
       <small>{status}</small>
       <button type="button" className="param-reset" disabled={!hasValue} onClick={props.onClear}>
@@ -698,6 +704,19 @@ function renderManualParamInput(param: PipelineParam, onChange: (patch: Partial<
         />
         <code>{param.value || "backend"}</code>
       </div>
+    );
+  }
+
+  if (param.type === "boolean") {
+    return (
+      <label className="toggle-param">
+        <input
+          type="checkbox"
+          checked={param.value === "true"}
+          onChange={(event) => onChange({ value: event.target.checked ? "true" : "false" })}
+        />
+        <span>{param.value === "true" ? "Enabled" : "Disabled"}</span>
+      </label>
     );
   }
 
@@ -900,11 +919,13 @@ function formatMetadataValue(value: unknown): string {
 }
 
 function createParamControl(parameter: MethodParameter): PipelineParam {
+  const randomizable = isRandomizableParamType(parameter.type);
+
   return {
     id: parameter.name,
     title: parameter.title,
     mode: "manual",
-    value: "",
+    value: getInitialParamValue(parameter),
     minValue: formatRandomMin(parameter),
     maxValue: formatRandomMax(parameter),
     placeholder: formatParamPlaceholder(parameter),
@@ -912,6 +933,8 @@ function createParamControl(parameter: MethodParameter): PipelineParam {
     type: parameter.type,
     choices: parameter.choices.map(String),
     range: parameter.value_range ?? parameter.random_default,
+    randomizable,
+    includeWhenEmpty: shouldIncludeEmptyParam(parameter),
   };
 }
 
@@ -941,6 +964,10 @@ function serializeParamValue(param: PipelineParam): unknown {
 }
 
 function serializeRandomParamValue(param: PipelineParam): unknown {
+  if (!param.randomizable) {
+    return undefined;
+  }
+
   if (param.type === "enum") {
     return param.choices.length > 0 ? { mode: "random", type: "enum", choices: param.choices } : undefined;
   }
@@ -976,7 +1003,7 @@ function parseRandomNumber(value: string, fallback: number): number | undefined 
 
 function hasParamValue(param: PipelineParam): boolean {
   if (param.mode === "manual") {
-    return param.value.trim() !== "";
+    return param.includeWhenEmpty || param.value.trim() !== "";
   }
 
   if (param.type === "enum") {
@@ -989,7 +1016,7 @@ function hasParamValue(param: PipelineParam): boolean {
 function parseParamValue(value: string, type: string): unknown {
   const normalized = value.trim();
   if (normalized === "") {
-    return undefined;
+    return type === "string" && value === "" ? "" : undefined;
   }
 
   if (type === "integer") {
@@ -1013,6 +1040,15 @@ function parseParamValue(value: string, type: string): unknown {
 
     const channels = normalized.split(/[,\s]+/).map((channel) => Number.parseInt(channel, 10));
     return channels.length === 3 && channels.every(Number.isFinite) ? channels : normalized;
+  }
+
+  if (type === "boolean") {
+    if (normalized === "true") {
+      return true;
+    }
+    if (normalized === "false") {
+      return false;
+    }
   }
 
   return normalized;
@@ -1053,6 +1089,22 @@ function formatParamPlaceholder(parameter: MethodParameter): string {
   }
 
   return "";
+}
+
+function getInitialParamValue(parameter: MethodParameter): string {
+  if (parameter.type !== "boolean" && parameter.type !== "string") {
+    return "";
+  }
+
+  return parameter.default === null || parameter.default === undefined ? "" : String(parameter.default);
+}
+
+function shouldIncludeEmptyParam(parameter: MethodParameter): boolean {
+  return parameter.type === "string";
+}
+
+function isRandomizableParamType(type: string): boolean {
+  return type === "integer" || type === "number" || type === "enum" || type === "rgb_color";
 }
 
 function formatRandomMin(parameter: MethodParameter): string {
