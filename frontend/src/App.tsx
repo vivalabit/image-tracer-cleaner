@@ -1,8 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 
-import { fetchMethods, randomizeImage } from "./api";
-import type { MethodDefinition, MethodParameter, NumericRange, Operation, OutputFormat, RandomizeRequest, RecipeStep } from "./types";
+import { fetchMethods, randomizeImage, readImageMetadata } from "./api";
+import type {
+  ImageMetadata,
+  MethodDefinition,
+  MethodParameter,
+  NumericRange,
+  Operation,
+  OutputFormat,
+  RandomizeRequest,
+  RecipeStep,
+} from "./types";
 
 type AppMode = "manual" | "random" | "metadata" | "batch";
 type PreviewMode = "compare" | "slider" | "difference";
@@ -38,36 +47,6 @@ type MetadataRow = {
   status: "kept" | "edited" | "removed";
 };
 
-const metadataRows: Record<MetadataTab, MetadataRow[]> = {
-  overview: [
-    { label: "Format", source: "JPEG", output: "PNG", status: "edited" },
-    { label: "Dimensions", source: "2400 x 1600", output: "2398 x 1602", status: "edited" },
-    { label: "File hash", source: "b72f...18a", output: "91ad...e44", status: "edited" },
-    { label: "GPS", source: "Present", output: "Removed", status: "removed" },
-  ],
-  exif: [
-    { label: "Make", source: "Canon", output: "Canon", status: "kept" },
-    { label: "Model", source: "EOS R6", output: "EOS R6", status: "kept" },
-    { label: "DateTimeOriginal", source: "2026:05:22 14:03:11", output: "2026:05:22 14:03:11", status: "kept" },
-    { label: "GPSInfo", source: "46.2044, 6.1432", output: "Removed", status: "removed" },
-  ],
-  iptc: [
-    { label: "Creator", source: "Sample author", output: "Removed", status: "removed" },
-    { label: "Copyright", source: "Empty", output: "Edited", status: "edited" },
-    { label: "Keywords", source: "product, draft", output: "product, processed", status: "edited" },
-  ],
-  xmp: [
-    { label: "CreatorTool", source: "Lightroom", output: "Image Randomizer", status: "edited" },
-    { label: "Rating", source: "0", output: "0", status: "kept" },
-    { label: "History", source: "Present", output: "Removed", status: "removed" },
-  ],
-  output: [
-    { label: "Color profile", source: "sRGB IEC61966", output: "sRGB IEC61966", status: "kept" },
-    { label: "Compression", source: "JPEG 92", output: "PNG optimized", status: "edited" },
-    { label: "Alpha", source: "None", output: "None", status: "kept" },
-  ],
-};
-
 const endpointRows = [
   { method: "GET", path: "/api/methods", note: "operation registry" },
   { method: "POST", path: "/api/randomize", note: "multipart operations" },
@@ -85,6 +64,9 @@ function App() {
   const [sourceUrl, setSourceUrl] = useState("");
   const [outputBlob, setOutputBlob] = useState<Blob | null>(null);
   const [outputUrl, setOutputUrl] = useState("");
+  const [metadata, setMetadata] = useState<ImageMetadata | null>(null);
+  const [metadataError, setMetadataError] = useState("");
+  const [isReadingMetadata, setIsReadingMetadata] = useState(false);
   const [seed, setSeed] = useState("42");
   const [outputFormat, setOutputFormat] = useState<OutputFormat>("PNG");
   const [isRendering, setIsRendering] = useState(false);
@@ -118,6 +100,9 @@ function App() {
     if (!file) {
       setSourceUrl("");
       setOutputBlob(null);
+      setMetadata(null);
+      setMetadataError("");
+      setIsReadingMetadata(false);
       return;
     }
 
@@ -126,6 +111,40 @@ function App() {
     setOutputBlob(null);
 
     return () => URL.revokeObjectURL(nextUrl);
+  }, [file]);
+
+  useEffect(() => {
+    if (!file) {
+      return;
+    }
+
+    let active = true;
+    setMetadata(null);
+    setMetadataError("");
+    setIsReadingMetadata(true);
+
+    readImageMetadata(file)
+      .then((nextMetadata) => {
+        if (!active) {
+          return;
+        }
+        setMetadata(nextMetadata);
+      })
+      .catch((error: unknown) => {
+        if (!active) {
+          return;
+        }
+        setMetadataError(error instanceof Error ? error.message : "Metadata request failed");
+      })
+      .finally(() => {
+        if (active) {
+          setIsReadingMetadata(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
   }, [file]);
 
   useEffect(() => {
@@ -143,6 +162,10 @@ function App() {
   const activeSteps = useMemo(() => pipeline.filter((step) => step.enabled), [pipeline]);
   const selectedStep = pipeline.find((step) => step.id === selectedStepId) ?? null;
   const methodsByName = useMemo(() => new Map(methods.map((method) => [method.name, method])), [methods]);
+  const visibleMetadataRows = useMemo(
+    () => buildMetadataRows(metadata, metadataTab, metadataError, isReadingMetadata),
+    [isReadingMetadata, metadata, metadataError, metadataTab],
+  );
   const requestPreview = useMemo(
     () =>
       JSON.stringify(
@@ -504,12 +527,7 @@ function App() {
           <div className="panel-header compact">
             <div>
               <span className="eyebrow">Metadata</span>
-              <h2>Source to output</h2>
-            </div>
-            <div className="metadata-actions">
-              <button type="button">Strip all</button>
-              <button type="button">Keep safe</button>
-              <button type="button">Template</button>
+              <h2>{metadata ? "Read-only scan" : "No file"}</h2>
             </div>
           </div>
 
@@ -527,7 +545,7 @@ function App() {
           </div>
 
           <div className="metadata-table">
-            {metadataRows[metadataTab].map((row) => (
+            {visibleMetadataRows.map((row) => (
               <div className="metadata-row" key={`${metadataTab}-${row.label}`}>
                 <strong>{row.label}</strong>
                 <span>{row.source}</span>
@@ -795,6 +813,90 @@ function createPipelineStep(method: MethodDefinition, stepNumber: number): Pipel
     params: controlsToParams(paramControls),
     paramControls,
   };
+}
+
+function buildMetadataRows(
+  metadata: ImageMetadata | null,
+  tab: MetadataTab,
+  error: string,
+  isLoading: boolean,
+): MetadataRow[] {
+  if (isLoading) {
+    return [{ label: "Status", source: "Reading", output: "", status: "kept" }];
+  }
+
+  if (error) {
+    return [{ label: "Status", source: error, output: "", status: "removed" }];
+  }
+
+  if (!metadata) {
+    return [{ label: "Status", source: "No file selected", output: "", status: "kept" }];
+  }
+
+  if (tab === "overview") {
+    return [
+      { label: "Format", source: metadata.format ?? "Unknown", output: "", status: "kept" },
+      {
+        label: "Dimensions",
+        source: `${metadata.dimensions.width} x ${metadata.dimensions.height}`,
+        output: "",
+        status: "kept",
+      },
+      {
+        label: "GPS",
+        source: metadata.gps_presence ? "Present" : "Not present",
+        output: "",
+        status: metadata.gps_presence ? "edited" : "kept",
+      },
+      { label: "File hash", source: metadata.file_hash, output: "", status: "kept" },
+    ];
+  }
+
+  if (tab === "output") {
+    return [
+      {
+        label: "Color profile",
+        source: metadata.color_profile ? `${metadata.color_profile.bytes} bytes` : "Not present",
+        output: "",
+        status: metadata.color_profile ? "kept" : "removed",
+      },
+      {
+        label: "Color profile hash",
+        source: metadata.color_profile?.sha256 ?? "",
+        output: "",
+        status: metadata.color_profile ? "kept" : "removed",
+      },
+    ];
+  }
+
+  const section = metadata[tab] as Record<string, unknown>;
+  const entries = Object.entries(section);
+  if (entries.length === 0) {
+    return [{ label: tab.toUpperCase(), source: "Empty", output: "", status: "kept" }];
+  }
+
+  return entries.map(([label, value]) => ({
+    label,
+    source: formatMetadataValue(value),
+    output: "",
+    status: "kept",
+  }));
+}
+
+function formatMetadataValue(value: unknown): string {
+  if (value === null || value === undefined) {
+    return "";
+  }
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+
+  return JSON.stringify(value);
 }
 
 function createParamControl(parameter: MethodParameter): PipelineParam {

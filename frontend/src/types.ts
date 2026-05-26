@@ -41,3 +41,23 @@ export type RandomizeRequest = {
   output_format: OutputFormat;
   operations: Operation[];
 };
+
+export type ColorProfileMetadata = {
+  present: boolean;
+  bytes: number;
+  sha256: string;
+};
+
+export type ImageMetadata = {
+  format: string | null;
+  dimensions: {
+    width: number;
+    height: number;
+  };
+  exif: Record<string, unknown>;
+  iptc: Record<string, unknown>;
+  xmp: Record<string, unknown>;
+  gps_presence: boolean;
+  color_profile: ColorProfileMetadata | null;
+  file_hash: string;
+};

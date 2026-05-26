@@ -6,6 +6,7 @@ The canonical API is upload-based:
 
 - `GET /api/health` returns service status.
 - `GET /api/methods` returns available operations, their legacy names, reversibility, and parameter metadata.
+- `POST /api/metadata/read` accepts an uploaded image and returns read-only metadata.
 - `POST /api/randomize` accepts multipart form data with `file` plus either a JSON `recipe` field or
   the current UI payload: `operations`, optional `seed`, and `output_format`.
 
@@ -61,6 +62,21 @@ the request seed before the operation runs:
     }
   }
 ]
+```
+
+The metadata read endpoint returns:
+
+```json
+{
+  "format": "JPEG",
+  "dimensions": {"width": 2400, "height": 1600},
+  "exif": {},
+  "iptc": {},
+  "xmp": {},
+  "gps_presence": false,
+  "color_profile": null,
+  "file_hash": "sha256..."
+}
 ```
 
 For migration, `image_randomizer.core.legacy` parses legacy query operation flags while preserving order:

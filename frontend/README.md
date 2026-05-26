@@ -6,6 +6,7 @@ React + TypeScript + Vite MVP for the Python backend contract.
 
 - Loads operations from `GET /api/methods`.
 - Uploads one image from the browser.
+- Reads uploaded image metadata through `POST /api/metadata/read`.
 - Lets the user build ordered pipeline steps with `name`, `enabled`, and `params`.
 - Supports manual exact parameter values and backend-seeded random min/max parameter ranges.
 - Sends active steps as `operations` through `POST /api/randomize`.
