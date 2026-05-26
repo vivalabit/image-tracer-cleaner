@@ -184,7 +184,7 @@ function App() {
   const [previewMode, setPreviewMode] = useState<PreviewMode>("compare");
   const [metadataTab, setMetadataTab] = useState<MetadataTab>("overview");
   const [pipeline, setPipeline] = useState<PipelineStep[]>([]);
-  const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
+  const [openSettingsStepId, setOpenSettingsStepId] = useState<string | null>(null);
   const [methods, setMethods] = useState<MethodDefinition[]>([]);
   const [apiStatus, setApiStatus] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -305,7 +305,6 @@ function App() {
   );
 
   const activeSteps = useMemo(() => pipeline.filter((step) => step.enabled), [pipeline]);
-  const selectedStep = pipeline.find((step) => step.id === selectedStepId) ?? null;
   const methodsByName = useMemo(() => new Map(methods.map((method) => [method.name, method])), [methods]);
   const visibleMetadataRows = useMemo(
     () => buildMetadataRows(metadata, metadataTab, metadataError, isReadingMetadata),
@@ -522,22 +521,6 @@ function App() {
     updateParam(stepId, paramId, { mode: "manual", value: "", minValue: "", maxValue: "" });
   }
 
-  function moveStep(stepId: string, direction: -1 | 1) {
-    setPipeline((current) => {
-      const index = current.findIndex((step) => step.id === stepId);
-      const nextIndex = index + direction;
-      if (index < 0 || nextIndex < 0 || nextIndex >= current.length) {
-        return current;
-      }
-
-      const next = [...current];
-      const [step] = next.splice(index, 1);
-      next.splice(nextIndex, 0, step);
-      return next;
-    });
-    invalidateRenderedOutput();
-  }
-
   function addStep(methodName: string) {
     const method = methodsByName.get(methodName);
     if (!method) {
@@ -548,16 +531,29 @@ function App() {
     const nextStep = createPipelineStep(method, nextPipelineStepId.current);
 
     setPipeline((current) => [...current, nextStep]);
-    setSelectedStepId(nextStep.id);
     invalidateRenderedOutput();
   }
 
   function removeStep(stepId: string) {
     const next = pipeline.filter((step) => step.id !== stepId);
     setPipeline(next);
-    if (selectedStepId === stepId) {
-      setSelectedStepId(next[0]?.id ?? null);
+    if (openSettingsStepId === stepId) {
+      setOpenSettingsStepId(null);
     }
+    invalidateRenderedOutput();
+  }
+
+  function randomizeStepSettings(stepId: string) {
+    setPipeline((current) =>
+      current.map((step) => {
+        if (step.id !== stepId) {
+          return step;
+        }
+
+        const paramControls = step.paramControls.map(randomizeParamControl);
+        return { ...step, paramControls, params: controlsToParams(paramControls) };
+      }),
+    );
     invalidateRenderedOutput();
   }
 
@@ -569,7 +565,7 @@ function App() {
 
     const nextSteps = createPresetPipeline(preset.steps, methodsByName, nextPipelineStepId);
     setPipeline(nextSteps);
-    setSelectedStepId(nextSteps[0]?.id ?? null);
+    setOpenSettingsStepId(null);
     setRecipeMessage(`${preset.title} recipe loaded. Preview updates automatically.`);
     invalidateRenderedOutput();
   }
@@ -598,7 +594,7 @@ function App() {
     );
 
     setPipeline(nextSteps);
-    setSelectedStepId(nextSteps[0]?.id ?? null);
+    setOpenSettingsStepId(null);
     setMode("random");
     setRecipeMessage("Random visual preset generated. Preview updates automatically.");
     invalidateRenderedOutput();
@@ -892,8 +888,7 @@ function App() {
             {pipeline.map((step, index) => (
               <article
                 key={step.id}
-                className={`step-card ${selectedStepId === step.id ? "selected" : ""}`}
-                onClick={() => setSelectedStepId(step.id)}
+                className={`step-card ${openSettingsStepId === step.id ? "selected" : ""}`}
               >
                 <div className="step-order">{index + 1}</div>
                 <div className="step-main">
@@ -906,39 +901,15 @@ function App() {
                 <div className="step-actions">
                   <button
                     type="button"
-                    title="Toggle step"
-                    aria-label="Toggle step"
-                    className={step.enabled ? "icon-button active" : "icon-button"}
+                    title="Settings"
+                    aria-label={`Settings for ${step.title}`}
+                    className={openSettingsStepId === step.id ? "icon-button active" : "icon-button"}
                     onClick={(event) => {
                       event.stopPropagation();
-                      updateStep(step.id, { enabled: !step.enabled });
+                      setOpenSettingsStepId((current) => (current === step.id ? null : step.id));
                     }}
                   >
-                    O
-                  </button>
-                  <button
-                    type="button"
-                    title="Move up"
-                    aria-label="Move up"
-                    className="icon-button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      moveStep(step.id, -1);
-                    }}
-                  >
-                    ^
-                  </button>
-                  <button
-                    type="button"
-                    title="Move down"
-                    aria-label="Move down"
-                    className="icon-button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      moveStep(step.id, 1);
-                    }}
-                  >
-                    v
+                    &#9881;
                   </button>
                   <button
                     type="button"
@@ -953,6 +924,15 @@ function App() {
                     x
                   </button>
                 </div>
+                {openSettingsStepId === step.id ? (
+                  <StepSettingsMenu
+                    step={step}
+                    onClearParam={(paramId) => clearParam(step.id, paramId)}
+                    onParamChange={(paramId, patch) => updateParam(step.id, paramId, patch)}
+                    onRandomize={() => randomizeStepSettings(step.id)}
+                    onToggleEnabled={() => updateStep(step.id, { enabled: !step.enabled })}
+                  />
+                ) : null}
               </article>
             ))}
           </div>
@@ -1019,36 +999,6 @@ function App() {
             </div>
           </section>
         ) : null}
-        <section className="settings-panel" aria-label="Selected operation settings">
-          {selectedStep ? (
-            <>
-              <div className="panel-header compact">
-                <div>
-                  <span className="eyebrow">Step settings</span>
-                  <h2>{selectedStep.title}</h2>
-                </div>
-              </div>
-
-              <div className="param-grid">
-                {selectedStep.paramControls.length > 0 ? (
-                  selectedStep.paramControls.map((param) => (
-                    <ParamControl
-                      key={param.id}
-                      param={param}
-                      onClear={() => clearParam(selectedStep.id, param.id)}
-                      onChange={(patch) => updateParam(selectedStep.id, param.id, patch)}
-                    />
-                  ))
-                ) : (
-                  <div className="empty-row">No parameters</div>
-                )}
-              </div>
-            </>
-          ) : (
-            <div className="empty-row">No selected step</div>
-          )}
-        </section>
-
         <section className="metadata-panel" aria-label="Metadata editor">
           <div className="panel-header compact">
             <div>
@@ -1137,6 +1087,51 @@ function Metric(props: { label: string; value: string; tone: "good" | "warn" | "
     <div className={`metric ${props.tone}`}>
       <span>{props.label}</span>
       <strong>{props.value}</strong>
+    </div>
+  );
+}
+
+function StepSettingsMenu(props: {
+  step: PipelineStep;
+  onClearParam: (paramId: string) => void;
+  onParamChange: (paramId: string, patch: Partial<PipelineParam>) => void;
+  onRandomize: () => void;
+  onToggleEnabled: () => void;
+}) {
+  const canRandomize = props.step.paramControls.some(canRandomizeParam);
+
+  return (
+    <div className="step-settings-menu" onClick={(event) => event.stopPropagation()}>
+      <div className="step-settings-header">
+        <div>
+          <span className="eyebrow">Filter settings</span>
+          <strong>{props.step.title}</strong>
+        </div>
+        <label className="toggle-param">
+          <input type="checkbox" checked={props.step.enabled} onChange={props.onToggleEnabled} />
+          <span>Active</span>
+        </label>
+      </div>
+
+      <button type="button" className="ghost-button small-button random-filter-button" disabled={!canRandomize} onClick={props.onRandomize}>
+        Random
+      </button>
+
+      <div className="param-grid step-param-grid">
+        {props.step.paramControls.length > 0 ? (
+          props.step.paramControls.map((param) => (
+            <ParamControl
+              key={param.id}
+              compact
+              param={param}
+              onClear={() => props.onClearParam(param.id)}
+              onChange={(patch) => props.onParamChange(param.id, patch)}
+            />
+          ))
+        ) : (
+          <div className="empty-row">No settings</div>
+        )}
+      </div>
     </div>
   );
 }
@@ -1506,12 +1501,12 @@ function calculateCrc32(data: Uint8Array): number {
   return (crc ^ 0xffffffff) >>> 0;
 }
 
-function ParamControl(props: { param: PipelineParam; onChange: (patch: Partial<PipelineParam>) => void; onClear: () => void }) {
+function ParamControl(props: { param: PipelineParam; onChange: (patch: Partial<PipelineParam>) => void; onClear: () => void; compact?: boolean }) {
   const hasValue = hasParamValue(props.param);
   const status = hasValue ? props.param.mode : "backend";
 
   return (
-    <div className={`param-row ${props.param.type}`}>
+    <div className={`param-row ${props.param.type} ${props.compact ? "compact" : ""}`}>
       <span className="param-title">{props.param.title}</span>
       {props.param.randomizable ? (
         <select
@@ -1857,6 +1852,39 @@ function createParamControl(parameter: MethodParameter): PipelineParam {
   };
 }
 
+function canRandomizeParam(param: PipelineParam): boolean {
+  return param.type === "boolean" || isRandomizableParamType(param.type);
+}
+
+function randomizeParamControl(param: PipelineParam): PipelineParam {
+  if (!canRandomizeParam(param)) {
+    return param;
+  }
+
+  if (param.type === "integer" || param.type === "number") {
+    const range = getNumericRange(param);
+    const value = randomNumber(range.min, range.max);
+    const formattedValue = param.type === "integer" ? String(Math.round(value)) : formatRandomDecimal(value);
+
+    return { ...param, mode: "manual", value: formattedValue };
+  }
+
+  if (param.type === "enum") {
+    const value = param.choices.length > 0 ? param.choices[Math.floor(Math.random() * param.choices.length)] : param.value;
+    return { ...param, mode: "manual", value };
+  }
+
+  if (param.type === "rgb_color") {
+    return { ...param, mode: "manual", value: randomHexColor() };
+  }
+
+  if (param.type === "boolean") {
+    return { ...param, value: Math.random() >= 0.5 ? "true" : "false" };
+  }
+
+  return param;
+}
+
 function toOperation(step: PipelineStep): Operation {
   return {
     name: step.name,
@@ -1996,6 +2024,19 @@ function parseSeedOrNull(value: string): number | null {
 
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
+}
+
+function randomNumber(min: number, max: number): number {
+  return min + Math.random() * (max - min);
+}
+
+function formatRandomDecimal(value: number): string {
+  return Number(value.toFixed(2)).toString();
+}
+
+function randomHexColor(): string {
+  const value = Math.floor(Math.random() * 0xffffff);
+  return `#${value.toString(16).padStart(6, "0")}`;
 }
 
 function formatParamPlaceholder(parameter: MethodParameter): string {
