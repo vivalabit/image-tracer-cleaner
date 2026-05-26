@@ -42,6 +42,42 @@ export type RandomizeRequest = {
   operations: Operation[];
 };
 
+export type DimensionsDelta = {
+  original: {
+    width: number;
+    height: number;
+  };
+  output: {
+    width: number;
+    height: number;
+  };
+  width_delta: number;
+  height_delta: number;
+};
+
+export type FileSizeDelta = {
+  original_bytes: number;
+  output_bytes: number;
+  delta_bytes: number;
+  delta_percent: number | null;
+};
+
+export type MetadataChanges = {
+  changed: boolean;
+  added: string[];
+  removed: string[];
+  modified: string[];
+};
+
+export type ImageAnalysis = {
+  original_hash: string;
+  output_hash: string;
+  dimensions_delta: DimensionsDelta;
+  file_size_delta: FileSizeDelta;
+  metadata_changes: MetadataChanges;
+  visual_similarity_score: number;
+};
+
 export type ColorProfileMetadata = {
   present: boolean;
   bytes: number;

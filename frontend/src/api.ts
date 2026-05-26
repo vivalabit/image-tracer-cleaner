@@ -1,4 +1,4 @@
-import type { ImageMetadata, MethodDefinition, RandomizeRequest } from "./types";
+import type { ImageAnalysis, ImageMetadata, MethodDefinition, RandomizeRequest } from "./types";
 
 type MethodsResponse = {
   methods: MethodDefinition[];
@@ -53,6 +53,24 @@ export async function readImageMetadata(file: File): Promise<ImageMetadata> {
   }
 
   return response.json() as Promise<ImageMetadata>;
+}
+
+export async function analyzeImages(original: File, output: Blob): Promise<ImageAnalysis> {
+  const formData = new FormData();
+  formData.append("original", original);
+  formData.append("output", output, "output");
+
+  const response = await fetch("/api/analyze", {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const message = await readErrorMessage(response, "Analyze request failed");
+    throw new Error(message);
+  }
+
+  return response.json() as Promise<ImageAnalysis>;
 }
 
 async function readErrorMessage(response: Response, fallback: string): Promise<string> {

@@ -85,6 +85,49 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(metadata["exif"]["Artist"], "Image Randomizer Test")
         self.assertFalse(metadata["gps_presence"])
 
+    def test_analyze_returns_hash_delta_metadata_and_similarity(self) -> None:
+        image = Image.new("RGB", (4, 3), "black")
+        original_payload = _save_png_with_metadata(image)
+        output_payload = _save_png(image)
+
+        response = self.client.post(
+            "/api/analyze",
+            files={
+                "original": ("original.png", original_payload, "image/png"),
+                "output": ("output.png", output_payload, "image/png"),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        analysis = response.json()
+
+        self.assertEqual(analysis["original_hash"], sha256(original_payload).hexdigest())
+        self.assertEqual(analysis["output_hash"], sha256(output_payload).hexdigest())
+        self.assertEqual(analysis["dimensions_delta"]["width_delta"], 0)
+        self.assertEqual(analysis["dimensions_delta"]["height_delta"], 0)
+        self.assertEqual(analysis["file_size_delta"]["original_bytes"], len(original_payload))
+        self.assertEqual(analysis["file_size_delta"]["output_bytes"], len(output_payload))
+        self.assertEqual(analysis["file_size_delta"]["delta_bytes"], len(output_payload) - len(original_payload))
+        self.assertTrue(analysis["metadata_changes"]["changed"])
+        self.assertIn("xmp.XML:com.adobe.xmp", analysis["metadata_changes"]["removed"])
+        self.assertIn("gps_presence", analysis["metadata_changes"]["modified"])
+        self.assertEqual(analysis["visual_similarity_score"], 100.0)
+
+    def test_analyze_detects_visual_difference(self) -> None:
+        original = Image.new("RGB", (4, 3), "black")
+        output = Image.new("RGB", (4, 3), "white")
+
+        response = self.client.post(
+            "/api/analyze",
+            files={
+                "original": ("original.png", _save_png(original), "image/png"),
+                "output": ("output.png", _save_png(output), "image/png"),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertLess(response.json()["visual_similarity_score"], 1.0)
+
     def test_randomize_uploads_real_png(self) -> None:
         image = Image.new("RGB", (3, 2), "black")
         image.putpixel((0, 0), (255, 0, 0))

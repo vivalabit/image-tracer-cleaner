@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 
-import { fetchMethods, randomizeImage, readImageMetadata } from "./api";
+import { analyzeImages, fetchMethods, randomizeImage, readImageMetadata } from "./api";
 import type {
+  ImageAnalysis,
   ImageMetadata,
   MethodDefinition,
   MethodParameter,
@@ -52,6 +53,7 @@ type MetadataRow = {
 const endpointRows = [
   { method: "GET", path: "/api/methods", note: "operation registry" },
   { method: "POST", path: "/api/randomize", note: "multipart operations" },
+  { method: "POST", path: "/api/analyze", note: "result analysis" },
 ];
 
 function App() {
@@ -66,6 +68,9 @@ function App() {
   const [sourceUrl, setSourceUrl] = useState("");
   const [outputBlob, setOutputBlob] = useState<Blob | null>(null);
   const [outputUrl, setOutputUrl] = useState("");
+  const [analysis, setAnalysis] = useState<ImageAnalysis | null>(null);
+  const [analysisError, setAnalysisError] = useState("");
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [metadata, setMetadata] = useState<ImageMetadata | null>(null);
   const [metadataError, setMetadataError] = useState("");
   const [isReadingMetadata, setIsReadingMetadata] = useState(false);
@@ -102,6 +107,9 @@ function App() {
     if (!file) {
       setSourceUrl("");
       setOutputBlob(null);
+      setAnalysis(null);
+      setAnalysisError("");
+      setIsAnalyzing(false);
       setMetadata(null);
       setMetadataError("");
       setIsReadingMetadata(false);
@@ -152,6 +160,9 @@ function App() {
   useEffect(() => {
     if (!outputBlob) {
       setOutputUrl("");
+      setAnalysis(null);
+      setAnalysisError("");
+      setIsAnalyzing(false);
       return;
     }
 
@@ -182,6 +193,7 @@ function App() {
       ),
     [activeSteps, file, outputFormat, seed],
   );
+  const metricError = renderError || analysisError;
 
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     setFile(event.target.files?.[0] ?? null);
@@ -267,6 +279,8 @@ function App() {
 
     setIsRendering(true);
     setRenderError("");
+    setAnalysis(null);
+    setAnalysisError("");
 
     try {
       const request: RandomizeRequest = {
@@ -277,8 +291,18 @@ function App() {
       };
       const nextOutput = await randomizeImage(request);
       setOutputBlob(nextOutput);
+      setIsAnalyzing(true);
+      try {
+        const nextAnalysis = await analyzeImages(file, nextOutput);
+        setAnalysis(nextAnalysis);
+      } catch (error) {
+        setAnalysisError(error instanceof Error ? error.message : "Analyze request failed");
+      } finally {
+        setIsAnalyzing(false);
+      }
     } catch (error) {
       setRenderError(error instanceof Error ? error.message : "Randomize request failed");
+      setIsAnalyzing(false);
     } finally {
       setIsRendering(false);
     }
@@ -392,12 +416,13 @@ function App() {
           </div>
 
           <div className="metric-strip" aria-label="Render metrics">
-            <Metric label="Active steps" value={`${activeSteps.length}`} tone="info" />
-            <Metric label="Format" value={outputFormat} tone="info" />
-            <Metric label="Seed" value={seed.trim() || "none"} tone="good" />
-            <Metric label="Result" value={renderError ? "error" : outputUrl ? "ready" : "idle"} tone={renderError ? "warn" : "good"} />
+            <Metric label="Visual match" value={formatVisualSimilarity(analysis, isAnalyzing, metricError)} tone={getVisualSimilarityTone(analysis, metricError)} />
+            <Metric label="Hash" value={formatHashMetric(analysis, isAnalyzing, metricError)} tone={getHashMetricTone(analysis, metricError)} />
+            <Metric label="Metadata" value={formatMetadataChangeMetric(analysis, isAnalyzing, metricError)} tone={getMetadataMetricTone(analysis, metricError)} />
+            <Metric label="Size delta" value={formatFileSizeDeltaMetric(analysis, isAnalyzing, metricError)} tone={getSizeDeltaTone(analysis, metricError)} />
           </div>
           {renderError ? <p className="inline-error">{renderError}</p> : null}
+          {analysisError ? <p className="inline-error">{analysisError}</p> : null}
         </section>
 
         <aside className="pipeline-panel" aria-label="Pipeline builder">
@@ -615,6 +640,131 @@ function Metric(props: { label: string; value: string; tone: "good" | "warn" | "
       <strong>{props.value}</strong>
     </div>
   );
+}
+
+function formatVisualSimilarity(analysis: ImageAnalysis | null, isAnalyzing: boolean, error: string): string {
+  if (error) {
+    return "error";
+  }
+  if (isAnalyzing) {
+    return "analyzing";
+  }
+  if (!analysis) {
+    return "idle";
+  }
+
+  return `${analysis.visual_similarity_score.toFixed(1)}%`;
+}
+
+function getVisualSimilarityTone(analysis: ImageAnalysis | null, error: string): "good" | "warn" | "info" {
+  if (error) {
+    return "warn";
+  }
+  if (!analysis) {
+    return "info";
+  }
+  if (analysis.visual_similarity_score >= 95) {
+    return "good";
+  }
+  return analysis.visual_similarity_score >= 80 ? "info" : "warn";
+}
+
+function formatHashMetric(analysis: ImageAnalysis | null, isAnalyzing: boolean, error: string): string {
+  if (error) {
+    return "error";
+  }
+  if (isAnalyzing) {
+    return "analyzing";
+  }
+  if (!analysis) {
+    return "idle";
+  }
+
+  return analysis.original_hash === analysis.output_hash ? "same" : "changed";
+}
+
+function getHashMetricTone(analysis: ImageAnalysis | null, error: string): "good" | "warn" | "info" {
+  if (error) {
+    return "warn";
+  }
+  if (!analysis) {
+    return "info";
+  }
+  return analysis.original_hash === analysis.output_hash ? "good" : "info";
+}
+
+function formatMetadataChangeMetric(analysis: ImageAnalysis | null, isAnalyzing: boolean, error: string): string {
+  if (error) {
+    return "error";
+  }
+  if (isAnalyzing) {
+    return "analyzing";
+  }
+  if (!analysis) {
+    return "idle";
+  }
+
+  const count = countMetadataChanges(analysis);
+  return count === 0 ? "same" : `${count} changes`;
+}
+
+function getMetadataMetricTone(analysis: ImageAnalysis | null, error: string): "good" | "warn" | "info" {
+  if (error) {
+    return "warn";
+  }
+  if (!analysis) {
+    return "info";
+  }
+  return analysis.metadata_changes.changed ? "warn" : "good";
+}
+
+function formatFileSizeDeltaMetric(analysis: ImageAnalysis | null, isAnalyzing: boolean, error: string): string {
+  if (error) {
+    return "error";
+  }
+  if (isAnalyzing) {
+    return "analyzing";
+  }
+  if (!analysis) {
+    return "idle";
+  }
+
+  const delta = analysis.file_size_delta.delta_bytes;
+  const sign = delta > 0 ? "+" : delta < 0 ? "-" : "";
+  const percent = analysis.file_size_delta.delta_percent;
+  const percentText = percent === null ? "" : ` (${sign}${Math.abs(percent).toFixed(1)}%)`;
+  return `${sign}${formatBytes(Math.abs(delta))}${percentText}`;
+}
+
+function getSizeDeltaTone(analysis: ImageAnalysis | null, error: string): "good" | "warn" | "info" {
+  if (error) {
+    return "warn";
+  }
+  if (!analysis) {
+    return "info";
+  }
+  return analysis.file_size_delta.delta_bytes <= 0 ? "good" : "info";
+}
+
+function countMetadataChanges(analysis: ImageAnalysis): number {
+  return (
+    analysis.metadata_changes.added.length +
+    analysis.metadata_changes.removed.length +
+    analysis.metadata_changes.modified.length
+  );
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+
+  const kilobytes = bytes / 1024;
+  if (kilobytes < 1024) {
+    return `${kilobytes.toFixed(1)} KB`;
+  }
+
+  return `${(kilobytes / 1024).toFixed(1)} MB`;
 }
 
 function ParamControl(props: { param: PipelineParam; onChange: (patch: Partial<PipelineParam>) => void; onClear: () => void }) {

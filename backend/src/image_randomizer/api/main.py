@@ -6,6 +6,7 @@ from dataclasses import asdict
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 
+from image_randomizer.core.analysis import analyze_images
 from image_randomizer.core.metadata import read_image_metadata
 from image_randomizer.core.models import Recipe
 from image_randomizer.core.pipeline import apply_pipeline, load_image_bytes, parse_recipe_step, save_image_bytes
@@ -30,6 +31,19 @@ async def metadata_read(file: UploadFile = File(...)) -> dict[str, object]:
     data = await file.read()
     try:
         return read_image_metadata(data)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/analyze")
+async def analyze(
+    original: UploadFile = File(...),
+    output: UploadFile = File(...),
+) -> dict[str, object]:
+    original_data = await original.read()
+    output_data = await output.read()
+    try:
+        return analyze_images(original_data, output_data)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

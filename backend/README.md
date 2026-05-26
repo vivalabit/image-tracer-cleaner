@@ -7,6 +7,7 @@ The canonical API is upload-based:
 - `GET /api/health` returns service status.
 - `GET /api/methods` returns available operations, their legacy names, reversibility, and parameter metadata.
 - `POST /api/metadata/read` accepts an uploaded image and returns read-only metadata.
+- `POST /api/analyze` accepts original and output images and returns result analysis metrics.
 - `POST /api/randomize` accepts multipart form data with `file` plus either a JSON `recipe` field or
   the current UI payload: `operations`, optional `seed`, and `output_format`.
 
@@ -93,6 +94,34 @@ The metadata read endpoint returns:
   "gps_presence": false,
   "color_profile": null,
   "file_hash": "sha256..."
+}
+```
+
+The analyze endpoint accepts multipart `original` and `output` file fields and returns:
+
+```json
+{
+  "original_hash": "sha256...",
+  "output_hash": "sha256...",
+  "dimensions_delta": {
+    "original": {"width": 2400, "height": 1600},
+    "output": {"width": 2424, "height": 1584},
+    "width_delta": 24,
+    "height_delta": -16
+  },
+  "file_size_delta": {
+    "original_bytes": 102400,
+    "output_bytes": 98432,
+    "delta_bytes": -3968,
+    "delta_percent": -3.88
+  },
+  "metadata_changes": {
+    "changed": true,
+    "added": ["exif.Software"],
+    "removed": ["xmp.XML:com.adobe.xmp"],
+    "modified": ["gps_presence"]
+  },
+  "visual_similarity_score": 98.42
 }
 ```
 
