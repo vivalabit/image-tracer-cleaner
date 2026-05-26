@@ -12,6 +12,7 @@ React + TypeScript + Vite MVP for the Python backend contract.
 - Builds boolean and string metadata controls from the backend method registry.
 - Sends active steps as `operations` through `POST /api/randomize`.
 - Analyzes the generated output with `POST /api/analyze` for visual, hash, metadata, and size metrics.
+- Keeps preview output as a temporary blob and downloads exports as `<original-name>_processed.<format>`.
 - Supports an optional seed for reproducible random defaults.
 - Does not include bulk processing or legacy `path=...` flows.
 

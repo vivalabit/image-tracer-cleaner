@@ -77,6 +77,7 @@ function App() {
   const [seed, setSeed] = useState("42");
   const [outputFormat, setOutputFormat] = useState<OutputFormat>("PNG");
   const [isRendering, setIsRendering] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [renderError, setRenderError] = useState("");
   const nextPipelineStepId = useRef(0);
 
@@ -271,10 +272,10 @@ function App() {
     setOutputBlob(null);
   }
 
-  async function handleRandomize() {
+  async function renderPreview(): Promise<Blob | null> {
     if (!file) {
       setRenderError("Choose an image first.");
-      return;
+      return null;
     }
 
     setIsRendering(true);
@@ -300,11 +301,35 @@ function App() {
       } finally {
         setIsAnalyzing(false);
       }
+      return nextOutput;
     } catch (error) {
       setRenderError(error instanceof Error ? error.message : "Randomize request failed");
       setIsAnalyzing(false);
+      return null;
     } finally {
       setIsRendering(false);
+    }
+  }
+
+  async function handleRandomize() {
+    await renderPreview();
+  }
+
+  async function handleExport() {
+    if (!file) {
+      setRenderError("Choose an image first.");
+      return;
+    }
+
+    setIsExporting(true);
+    try {
+      const blob = outputBlob ?? (await renderPreview());
+      if (!blob) {
+        return;
+      }
+      downloadBlob(blob, buildOutputFilename(file.name, outputFormat));
+    } finally {
+      setIsExporting(false);
     }
   }
 
@@ -325,8 +350,8 @@ function App() {
           <button type="button" className="ghost-button">
             Save preset
           </button>
-          <button type="button" className="primary-button" disabled={!file || isRendering} onClick={handleRandomize}>
-            {isRendering ? "Rendering" : "Export"}
+          <button type="button" className="primary-button" disabled={!file || isRendering || isExporting} onClick={handleExport}>
+            {isExporting ? "Exporting" : "Export"}
           </button>
         </div>
       </header>
@@ -431,7 +456,7 @@ function App() {
               <span className="eyebrow">Pipeline</span>
               <h2>Recipe</h2>
             </div>
-            <button type="button" className="ghost-button small-button" disabled={!file || isRendering} onClick={handleRandomize}>
+            <button type="button" className="ghost-button small-button" disabled={!file || isRendering || isExporting} onClick={handleRandomize}>
               {isRendering ? "Rendering" : "Randomize"}
             </button>
           </div>
@@ -765,6 +790,25 @@ function formatBytes(bytes: number): string {
   }
 
   return `${(kilobytes / 1024).toFixed(1)} MB`;
+}
+
+function buildOutputFilename(originalName: string, outputFormat: OutputFormat): string {
+  const extension = outputFormat.toLowerCase();
+  const dotIndex = originalName.lastIndexOf(".");
+  const baseName = dotIndex > 0 ? originalName.slice(0, dotIndex) : originalName;
+  const stem = baseName.trim() || "image";
+  return `${stem}_processed.${extension}`;
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
 }
 
 function ParamControl(props: { param: PipelineParam; onChange: (patch: Partial<PipelineParam>) => void; onClear: () => void }) {
