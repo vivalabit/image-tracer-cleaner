@@ -120,7 +120,6 @@ button:disabled {
 .primary-button,
 .ghost-button,
 .metadata-actions button,
-.preset-list button,
 .add-step-grid button {
   min-height: 36px;
   border-radius: 6px;
@@ -137,7 +136,6 @@ button:disabled {
 
 .ghost-button,
 .metadata-actions button,
-.preset-list button,
 .add-step-grid button {
   border: 1px solid #cfd7d2;
   background: #fff;
@@ -146,7 +144,6 @@ button:disabled {
 
 .primary-button:disabled,
 .ghost-button:disabled,
-.preset-list button:disabled,
 .add-step-grid button:disabled {
   border-color: #d8ded9;
   background: #eef1ee;
@@ -297,11 +294,6 @@ button:disabled {
   justify-self: end;
   color: #1e5b73;
   font-size: 13px;
-}
-
-.preset-list {
-  display: grid;
-  gap: 8px;
 }
 
 .workflow-actions {

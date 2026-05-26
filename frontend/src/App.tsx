@@ -14,11 +14,10 @@ import type {
   RecipeStep,
 } from "./types";
 
-type AppMode = "manual" | "random" | "metadata" | "batch";
+type AppMode = "manual" | "metadata" | "batch";
 type PreviewMode = "compare" | "slider" | "difference";
 type MetadataTab = "overview" | "exif" | "iptc" | "xmp" | "output";
 type ParamMode = "manual" | "random";
-type PresetId = "light-cleanup" | "subtle-variant" | "metadata-strip";
 
 type PipelineParam = {
   id: string;
@@ -63,118 +62,10 @@ type MetadataRow = {
   status: "kept" | "edited" | "removed";
 };
 
-type ParamPresetOverride = Partial<Pick<PipelineParam, "mode" | "value" | "minValue" | "maxValue">>;
-
-type StepPresetSpec = {
-  methodName: string;
-  overrides?: Record<string, ParamPresetOverride>;
-};
-
-type PresetDefinition = {
-  id: PresetId;
-  title: string;
-  steps: StepPresetSpec[];
-};
-
 const endpointRows = [
   { method: "GET", path: "/api/methods", note: "operation registry" },
   { method: "POST", path: "/api/randomize", note: "multipart operations" },
   { method: "POST", path: "/api/analyze", note: "result analysis" },
-];
-
-const presetDefinitions: PresetDefinition[] = [
-  {
-    id: "light-cleanup",
-    title: "Light cleanup",
-    steps: [
-      {
-        methodName: "metadata",
-        overrides: {
-          strip_gps: { mode: "manual", value: "true" },
-          strip_all: { mode: "manual", value: "false" },
-          creator: { mode: "manual", value: "" },
-          software: { mode: "manual", value: "Image Randomizer" },
-        },
-      },
-    ],
-  },
-  {
-    id: "subtle-variant",
-    title: "Subtle variant",
-    steps: [
-      {
-        methodName: "resize",
-        overrides: {
-          scale_x_pct: { mode: "random", minValue: "98", maxValue: "102" },
-          scale_y_pct: { mode: "random", minValue: "98", maxValue: "102" },
-        },
-      },
-      { methodName: "interference", overrides: { strength: { mode: "random", minValue: "1", maxValue: "5" } } },
-      { methodName: "sharp", overrides: { amount: { mode: "random", minValue: "-6", maxValue: "6" } } },
-      {
-        methodName: "metadata",
-        overrides: {
-          strip_gps: { mode: "manual", value: "true" },
-          strip_all: { mode: "manual", value: "false" },
-          creator: { mode: "manual", value: "" },
-          software: { mode: "manual", value: "Image Randomizer" },
-        },
-      },
-    ],
-  },
-  {
-    id: "metadata-strip",
-    title: "Metadata strip",
-    steps: [
-      {
-        methodName: "metadata",
-        overrides: {
-          strip_gps: { mode: "manual", value: "true" },
-          strip_all: { mode: "manual", value: "true" },
-          creator: { mode: "manual", value: "" },
-          software: { mode: "manual", value: "Image Randomizer" },
-        },
-      },
-    ],
-  },
-];
-
-const randomVisualPresetSpecs: StepPresetSpec[][] = [
-  [
-    {
-      methodName: "resize",
-      overrides: {
-        scale_x_pct: { mode: "random", minValue: "98", maxValue: "102" },
-        scale_y_pct: { mode: "random", minValue: "98", maxValue: "102" },
-      },
-    },
-    { methodName: "interference", overrides: { strength: { mode: "random", minValue: "1", maxValue: "5" } } },
-    { methodName: "sharp", overrides: { amount: { mode: "random", minValue: "-5", maxValue: "5" } } },
-  ],
-  [
-    { methodName: "rotate", overrides: { angle: { mode: "random", minValue: "-2", maxValue: "2" } } },
-    {
-      methodName: "crop",
-      overrides: {
-        top_pct: { mode: "random", minValue: "0", maxValue: "2" },
-        bottom_pct: { mode: "random", minValue: "0", maxValue: "2" },
-        left_pct: { mode: "random", minValue: "0", maxValue: "2" },
-        right_pct: { mode: "random", minValue: "0", maxValue: "2" },
-      },
-    },
-    { methodName: "interference", overrides: { strength: { mode: "random", minValue: "1", maxValue: "4" } } },
-  ],
-  [
-    { methodName: "interference", overrides: { strength: { mode: "random", minValue: "2", maxValue: "6" } } },
-    {
-      methodName: "blur",
-      overrides: {
-        type: { mode: "manual", value: "gaussian" },
-        radius: { mode: "random", minValue: "0.2", maxValue: "0.8" },
-      },
-    },
-    { methodName: "sharp", overrides: { amount: { mode: "random", minValue: "-4", maxValue: "8" } } },
-  ],
 ];
 
 const crc32Table = createCrc32Table();
@@ -206,7 +97,6 @@ function App() {
   const [isExporting, setIsExporting] = useState(false);
   const [isPreviewDirty, setIsPreviewDirty] = useState(false);
   const [renderError, setRenderError] = useState("");
-  const [recipeMessage, setRecipeMessage] = useState("");
   const nextPipelineStepId = useRef(0);
   const outputUrlRef = useRef("");
   const previewAbortController = useRef<AbortController | null>(null);
@@ -416,7 +306,6 @@ function App() {
       : !file || isRendering || isExporting;
   const batchProcessActionLabel = isBatchRunning ? "Processing batch" : "Process batch";
   const batchProcessActionDisabled = !hasBatchFiles || isBatchRunning || isExporting;
-  const presetActionDisabled = methods.length === 0 || isRendering || isBatchRunning || isExporting;
 
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     setFile(event.target.files?.[0] ?? null);
@@ -554,49 +443,6 @@ function App() {
         return { ...step, paramControls, params: controlsToParams(paramControls) };
       }),
     );
-    invalidateRenderedOutput();
-  }
-
-  function applyPreset(presetId: PresetId) {
-    const preset = presetDefinitions.find((definition) => definition.id === presetId);
-    if (!preset) {
-      return;
-    }
-
-    const nextSteps = createPresetPipeline(preset.steps, methodsByName, nextPipelineStepId);
-    setPipeline(nextSteps);
-    setOpenSettingsStepId(null);
-    setRecipeMessage(`${preset.title} recipe loaded. Preview updates automatically.`);
-    invalidateRenderedOutput();
-  }
-
-  function generateVisualPreset() {
-    if (randomVisualPresetSpecs.length === 0) {
-      return;
-    }
-
-    const presetIndex = Math.floor(Math.random() * randomVisualPresetSpecs.length);
-    const nextSteps = createPresetPipeline(
-      [
-        ...randomVisualPresetSpecs[presetIndex],
-        {
-          methodName: "metadata",
-          overrides: {
-            strip_gps: { mode: "manual", value: "true" },
-            strip_all: { mode: "manual", value: "false" },
-            creator: { mode: "manual", value: "" },
-            software: { mode: "manual", value: "Image Randomizer" },
-          },
-        },
-      ],
-      methodsByName,
-      nextPipelineStepId,
-    );
-
-    setPipeline(nextSteps);
-    setOpenSettingsStepId(null);
-    setMode("random");
-    setRecipeMessage("Random visual preset generated. Preview updates automatically.");
     invalidateRenderedOutput();
   }
 
@@ -743,9 +589,6 @@ function App() {
         </div>
         <div className="topbar-actions">
           <span className={apiStatus ? "status-pill warning" : "status-pill"}>{apiStatus ? "API offline" : "API ready"}</span>
-          <button type="button" className="ghost-button">
-            Save preset
-          </button>
           <button type="button" className="primary-button" disabled={primaryActionDisabled} onClick={handlePrimaryAction}>
             {primaryActionLabel}
           </button>
@@ -771,7 +614,7 @@ function App() {
           )}
 
           <div className="segmented-control" aria-label="Mode">
-            {(["manual", "random", "metadata", "batch"] as const).map((nextMode) => (
+            {(["manual", "metadata", "batch"] as const).map((nextMode) => (
               <button
                 key={nextMode}
                 type="button"
@@ -818,24 +661,7 @@ function App() {
                 {batchProcessActionLabel}
               </button>
             ) : null}
-            <button
-              type="button"
-              className="ghost-button"
-              disabled={presetActionDisabled}
-              onClick={generateVisualPreset}
-            >
-              Generate visual preset
-            </button>
-            <small>{recipeMessage || "Recipe changes render automatically on the preview image."}</small>
-          </div>
-
-          <div className="preset-list" aria-label="Presets">
-            <span className="eyebrow">Saved presets</span>
-            {presetDefinitions.map((preset) => (
-              <button key={preset.id} type="button" disabled={presetActionDisabled} onClick={() => applyPreset(preset.id)}>
-                {preset.title}
-              </button>
-            ))}
+            <small>Recipe changes render automatically on the preview image.</small>
           </div>
         </aside>
 
@@ -1687,7 +1513,6 @@ function renderRandomParamInput(param: PipelineParam, onChange: (patch: Partial<
 function formatMode(mode: AppMode): string {
   const labels: Record<AppMode, string> = {
     manual: "Manual",
-    random: "Presets",
     metadata: "Metadata",
     batch: "Batch",
   };
@@ -1716,36 +1541,6 @@ function createPipelineStep(method: MethodDefinition, stepNumber: number): Pipel
     params: controlsToParams(paramControls),
     paramControls,
   };
-}
-
-function createPresetPipeline(
-  specs: StepPresetSpec[],
-  methodsByName: Map<string, MethodDefinition>,
-  nextId: { current: number },
-): PipelineStep[] {
-  const steps: PipelineStep[] = [];
-
-  for (const spec of specs) {
-    const method = methodsByName.get(spec.methodName);
-    if (!method) {
-      continue;
-    }
-
-    nextId.current += 1;
-    const step = createPipelineStep(method, nextId.current);
-    steps.push(applyStepPresetOverrides(step, spec.overrides ?? {}));
-  }
-
-  return steps;
-}
-
-function applyStepPresetOverrides(step: PipelineStep, overrides: Record<string, ParamPresetOverride>): PipelineStep {
-  const paramControls = step.paramControls.map((param) => {
-    const override = overrides[param.id];
-    return override ? { ...param, ...override } : param;
-  });
-
-  return { ...step, params: controlsToParams(paramControls), paramControls };
 }
 
 function buildMetadataRows(
