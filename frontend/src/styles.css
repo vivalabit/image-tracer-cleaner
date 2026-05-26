@@ -165,9 +165,7 @@ button:disabled {
 .control-panel,
 .preview-panel,
 .pipeline-panel,
-.settings-panel,
 .metadata-panel,
-.batch-panel,
 .api-panel {
   border: 1px solid #d9dfda;
   border-radius: 8px;
@@ -757,92 +755,9 @@ button:disabled {
   align-items: start;
 }
 
-.settings-panel,
 .metadata-panel,
-.batch-panel,
 .api-panel {
   overflow: hidden;
-}
-
-.batch-panel {
-  grid-column: 1 / -1;
-}
-
-.batch-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: flex-end;
-}
-
-.batch-list {
-  display: grid;
-  gap: 1px;
-  background: #edf0ed;
-}
-
-.batch-row {
-  display: grid;
-  grid-template-columns: minmax(160px, 1.3fr) 104px minmax(180px, 1.5fr) 78px;
-  gap: 10px;
-  align-items: center;
-  min-width: 0;
-  padding: 10px 12px;
-  background: #fff;
-}
-
-.batch-file {
-  display: grid;
-  gap: 3px;
-  min-width: 0;
-}
-
-.batch-file strong,
-.batch-row span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.batch-file strong {
-  color: #202124;
-  font-size: 13px;
-}
-
-.batch-file small,
-.batch-row span {
-  color: #68706a;
-  font-size: 12px;
-}
-
-.batch-row mark {
-  border-radius: 999px;
-  padding: 4px 7px;
-  text-align: center;
-  font-size: 10px;
-  font-weight: 850;
-  text-transform: uppercase;
-}
-
-.batch-row mark.queued {
-  background: #edf0ed;
-  color: #4f5a53;
-}
-
-.batch-row mark.processing {
-  background: #e7f2f5;
-  color: #1e5b73;
-}
-
-.batch-row mark.done {
-  background: #e8f5ee;
-  color: #2f6b50;
-}
-
-.batch-row mark.error {
-  background: #fae4df;
-  color: #9f3e31;
 }
 
 .param-grid {
@@ -1192,13 +1107,11 @@ button:disabled {
 
   .metadata-row,
   .endpoint-row,
-  .batch-row,
   .param-row {
     grid-template-columns: 1fr;
   }
 
   .metadata-row mark,
-  .batch-row mark,
   .param-reset {
     justify-self: start;
   }

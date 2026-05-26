@@ -14,7 +14,7 @@ import type {
   RecipeStep,
 } from "./types";
 
-type AppMode = "manual" | "metadata" | "batch";
+type AppMode = "manual" | "metadata";
 type PreviewMode = "compare" | "slider" | "difference";
 type MetadataTab = "overview" | "exif" | "iptc" | "xmp" | "output";
 type ParamMode = "manual" | "random";
@@ -43,18 +43,6 @@ type PipelineStep = RecipeStep & {
   paramControls: PipelineParam[];
 };
 
-type BatchStatus = "queued" | "processing" | "done" | "error";
-
-type BatchItem = {
-  id: string;
-  file: File;
-  status: BatchStatus;
-  outputName: string;
-  outputBlob: Blob | null;
-  analysis: ImageAnalysis | null;
-  error: string;
-};
-
 type MetadataRow = {
   label: string;
   source: string;
@@ -68,8 +56,6 @@ const endpointRows = [
   { method: "POST", path: "/api/analyze", note: "result analysis" },
 ];
 
-const crc32Table = createCrc32Table();
-
 function App() {
   const [mode, setMode] = useState<AppMode>("manual");
   const [previewMode, setPreviewMode] = useState<PreviewMode>("compare");
@@ -79,9 +65,6 @@ function App() {
   const [methods, setMethods] = useState<MethodDefinition[]>([]);
   const [apiStatus, setApiStatus] = useState("");
   const [file, setFile] = useState<File | null>(null);
-  const [batchItems, setBatchItems] = useState<BatchItem[]>([]);
-  const [isBatchRunning, setIsBatchRunning] = useState(false);
-  const [batchError, setBatchError] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
   const [outputBlob, setOutputBlob] = useState<Blob | null>(null);
   const [outputUrl, setOutputUrl] = useState("");
@@ -204,7 +187,7 @@ function App() {
     () =>
       JSON.stringify(
         {
-          file: mode === "batch" ? batchItems.map((item) => item.file.name) : file ? file.name : null,
+          file: file ? file.name : null,
           operations: activeSteps.map(toOperation),
           seed: parseSeedOrNull(seed),
           output_format: outputFormat,
@@ -212,7 +195,7 @@ function App() {
         null,
         2,
       ),
-    [activeSteps, batchItems, file, mode, outputFormat, seed],
+    [activeSteps, file, outputFormat, seed],
   );
   const renderPreview = useCallback(async (): Promise<Blob | null> => {
     const requestId = previewRequestId.current + 1;
@@ -298,32 +281,14 @@ function App() {
   }, [file, renderPreview]);
 
   const metricError = renderError || analysisError;
-  const hasBatchFiles = batchItems.length > 0;
-  const primaryActionLabel = mode === "batch" ? (isExporting ? "Exporting" : "Export ZIP") : isExporting ? "Exporting" : "Export";
-  const primaryActionDisabled =
-    mode === "batch"
-      ? !hasBatchFiles || isBatchRunning || isExporting
-      : !file || isRendering || isExporting;
-  const batchProcessActionLabel = isBatchRunning ? "Processing batch" : "Process batch";
-  const batchProcessActionDisabled = !hasBatchFiles || isBatchRunning || isExporting;
+  const primaryActionLabel = isExporting ? "Exporting" : "Export";
+  const primaryActionDisabled = !file || isRendering || isExporting;
 
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     setFile(event.target.files?.[0] ?? null);
   }
 
-  function handleBatchFilesChange(event: ChangeEvent<HTMLInputElement>) {
-    const nextFiles = Array.from(event.target.files ?? []);
-    const nextItems = nextFiles.map((nextFile, index) => createBatchItem(nextFile, outputFormat, index));
-    previewRequestId.current += 1;
-    previewAbortController.current?.abort();
-    previewAbortController.current = null;
-    setBatchItems(nextItems);
-    setBatchError("");
-    setFile(nextFiles[0] ?? null);
-    clearRenderedOutput();
-  }
-
-  function invalidateRenderedOutput(nextFormat: OutputFormat = outputFormat) {
+  function invalidateRenderedOutput() {
     previewRequestId.current += 1;
     previewAbortController.current?.abort();
     previewAbortController.current = null;
@@ -331,7 +296,6 @@ function App() {
     setRenderError("");
     setAnalysisError("");
     setIsAnalyzing(false);
-    resetBatchResults(nextFormat);
   }
 
   function commitRenderedOutput(nextOutput: Blob) {
@@ -361,20 +325,6 @@ function App() {
     if (previousUrl) {
       URL.revokeObjectURL(previousUrl);
     }
-  }
-
-  function resetBatchResults(nextFormat: OutputFormat = outputFormat) {
-    setBatchItems((current) =>
-      current.map((item) => ({
-        ...item,
-        status: "queued",
-        outputName: buildOutputFilename(item.file.name, nextFormat),
-        outputBlob: null,
-        analysis: null,
-        error: "",
-      })),
-    );
-    setBatchError("");
   }
 
   function updateStep(stepId: string, patch: Partial<PipelineStep>) {
@@ -464,117 +414,6 @@ function App() {
     }
   }
 
-  async function processBatch(): Promise<BatchItem[]> {
-    if (batchItems.length === 0) {
-      setBatchError("Choose batch images first.");
-      return [];
-    }
-
-    setIsBatchRunning(true);
-    setBatchError("");
-    const operations = activeSteps.map(toOperation);
-    let parsedSeed: number | null;
-    try {
-      parsedSeed = parseSeed(seed);
-    } catch (error) {
-      setBatchError(error instanceof Error ? error.message : "Seed must be an integer or empty.");
-      setIsBatchRunning(false);
-      return [];
-    }
-
-    const completedItems: BatchItem[] = [];
-
-    for (const item of batchItems) {
-      const outputName = buildOutputFilename(item.file.name, outputFormat);
-      setBatchItems((current) =>
-        updateBatchItem(current, item.id, {
-          status: "processing",
-          outputName,
-          outputBlob: null,
-          analysis: null,
-          error: "",
-        }),
-      );
-
-      try {
-        const output = await randomizeImage({
-          file: item.file,
-          operations,
-          seed: parsedSeed,
-          output_format: outputFormat,
-        });
-        let nextAnalysis: ImageAnalysis | null = null;
-        try {
-          nextAnalysis = await analyzeImages(item.file, output);
-        } catch {
-          nextAnalysis = null;
-        }
-
-        const doneItem: BatchItem = {
-          ...item,
-          status: "done",
-          outputName,
-          outputBlob: output,
-          analysis: nextAnalysis,
-          error: "",
-        };
-        completedItems.push(doneItem);
-        setBatchItems((current) => updateBatchItem(current, item.id, doneItem));
-      } catch (error) {
-        const errorItem: BatchItem = {
-          ...item,
-          status: "error",
-          outputName,
-          outputBlob: null,
-          analysis: null,
-          error: error instanceof Error ? error.message : "Batch item failed",
-        };
-        completedItems.push(errorItem);
-        setBatchItems((current) => updateBatchItem(current, item.id, errorItem));
-      }
-    }
-
-    setIsBatchRunning(false);
-    return completedItems;
-  }
-
-  async function handleProcessBatch() {
-    await processBatch();
-  }
-
-  async function handleBatchExport() {
-    setIsExporting(true);
-    try {
-      const completedItems = batchItems.some((item) => item.status === "done" && item.outputBlob)
-        ? batchItems
-        : await processBatch();
-      const files = completedItems
-        .filter((item): item is BatchItem & { outputBlob: Blob } => item.status === "done" && item.outputBlob !== null)
-        .map((item) => ({ name: item.outputName, blob: item.outputBlob }));
-
-      if (files.length === 0) {
-        setBatchError("No processed files to export.");
-        return;
-      }
-
-      const zipBlob = await createZipBlob(files);
-      downloadBlob(zipBlob, buildBatchZipFilename());
-    } catch (error) {
-      setBatchError(error instanceof Error ? error.message : "Batch ZIP export failed.");
-    } finally {
-      setIsExporting(false);
-    }
-  }
-
-  function handlePrimaryAction() {
-    if (mode === "batch") {
-      void handleBatchExport();
-      return;
-    }
-
-    void handleExport();
-  }
-
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -589,7 +428,7 @@ function App() {
         </div>
         <div className="topbar-actions">
           <span className={apiStatus ? "status-pill warning" : "status-pill"}>{apiStatus ? "API offline" : "API ready"}</span>
-          <button type="button" className="primary-button" disabled={primaryActionDisabled} onClick={handlePrimaryAction}>
+          <button type="button" className="primary-button" disabled={primaryActionDisabled} onClick={handleExport}>
             {primaryActionLabel}
           </button>
         </div>
@@ -597,24 +436,15 @@ function App() {
 
       <section className="workspace">
         <aside className="control-panel" aria-label="Project controls">
-          {mode === "batch" ? (
-            <label className="file-drop">
-              <span className="eyebrow">Batch images</span>
-              <input type="file" accept="image/*" multiple onChange={handleBatchFilesChange} />
-              <strong>{batchItems.length > 0 ? `${batchItems.length} files selected` : "Choose images"}</strong>
-              <small>{batchItems.length > 0 ? formatBatchInputSize(batchItems) : "PNG, JPEG, WEBP"}</small>
-            </label>
-          ) : (
-            <label className="file-drop">
-              <span className="eyebrow">Input image</span>
-              <input type="file" accept="image/*" onChange={handleFileChange} />
-              <strong>{file ? file.name : "Choose image"}</strong>
-              <small>{file ? `${Math.round(file.size / 1024)} KB` : "PNG, JPEG, WEBP"}</small>
-            </label>
-          )}
+          <label className="file-drop">
+            <span className="eyebrow">Input image</span>
+            <input type="file" accept="image/*" onChange={handleFileChange} />
+            <strong>{file ? file.name : "Choose image"}</strong>
+            <small>{file ? `${Math.round(file.size / 1024)} KB` : "PNG, JPEG, WEBP"}</small>
+          </label>
 
           <div className="segmented-control" aria-label="Mode">
-            {(["manual", "metadata", "batch"] as const).map((nextMode) => (
+            {(["manual", "metadata"] as const).map((nextMode) => (
               <button
                 key={nextMode}
                 type="button"
@@ -645,7 +475,7 @@ function App() {
               onChange={(event) => {
                 const nextFormat = event.target.value as OutputFormat;
                 setOutputFormat(nextFormat);
-                invalidateRenderedOutput(nextFormat);
+                invalidateRenderedOutput();
               }}
             >
               <option>PNG</option>
@@ -656,11 +486,6 @@ function App() {
 
           <div className="workflow-actions" aria-label="Workflow actions">
             <span className="eyebrow">Workflow</span>
-            {mode === "batch" ? (
-              <button type="button" className="primary-button" disabled={batchProcessActionDisabled} onClick={handleProcessBatch}>
-                {batchProcessActionLabel}
-              </button>
-            ) : null}
             <small>Recipe changes render automatically on the preview image.</small>
           </div>
         </aside>
@@ -778,53 +603,6 @@ function App() {
       </section>
 
       <section className="detail-grid">
-        {mode === "batch" ? (
-          <section className="batch-panel" aria-label="Batch processing">
-            <div className="panel-header compact">
-              <div>
-                <span className="eyebrow">Batch</span>
-                <h2>{formatBatchSummary(batchItems, isBatchRunning)}</h2>
-              </div>
-              <div className="batch-actions">
-                <button type="button" className="ghost-button small-button" disabled={!hasBatchFiles || isBatchRunning || isExporting} onClick={handleProcessBatch}>
-                  {isBatchRunning ? "Processing" : "Process"}
-                </button>
-                <button type="button" className="primary-button small-button" disabled={!hasBatchFiles || isBatchRunning || isExporting} onClick={handleBatchExport}>
-                  {isExporting ? "Exporting" : "Export ZIP"}
-                </button>
-              </div>
-            </div>
-            {batchError ? <p className="inline-error">{batchError}</p> : null}
-            <div className="batch-list">
-              {batchItems.length > 0 ? (
-                batchItems.map((item) => (
-                  <div className="batch-row" key={item.id}>
-                    <div className="batch-file">
-                      <strong>{item.file.name}</strong>
-                      <small>{formatBytes(item.file.size)}</small>
-                    </div>
-                    <mark className={item.status}>{formatBatchStatus(item.status)}</mark>
-                    <span>{formatBatchResult(item)}</span>
-                    <button
-                      type="button"
-                      className="ghost-button small-button"
-                      disabled={!item.outputBlob}
-                      onClick={() => {
-                        if (item.outputBlob) {
-                          downloadBlob(item.outputBlob, item.outputName);
-                        }
-                      }}
-                    >
-                      Save
-                    </button>
-                  </div>
-                ))
-              ) : (
-                <div className="empty-row">No batch files selected</div>
-              )}
-            </div>
-          </section>
-        ) : null}
         <section className="metadata-panel" aria-label="Metadata editor">
           <div className="panel-header compact">
             <div>
@@ -1087,80 +865,12 @@ function formatBytes(bytes: number): string {
   return `${(kilobytes / 1024).toFixed(1)} MB`;
 }
 
-function createBatchItem(file: File, outputFormat: OutputFormat, index: number): BatchItem {
-  return {
-    id: `${file.name}-${file.lastModified}-${file.size}-${index}`,
-    file,
-    status: "queued",
-    outputName: buildOutputFilename(file.name, outputFormat),
-    outputBlob: null,
-    analysis: null,
-    error: "",
-  };
-}
-
-function updateBatchItem(items: BatchItem[], itemId: string, patch: Partial<BatchItem>): BatchItem[] {
-  return items.map((item) => (item.id === itemId ? { ...item, ...patch } : item));
-}
-
-function formatBatchInputSize(items: BatchItem[]): string {
-  const totalBytes = items.reduce((total, item) => total + item.file.size, 0);
-  return `${items.length} files, ${formatBytes(totalBytes)}`;
-}
-
-function formatBatchSummary(items: BatchItem[], isRunning: boolean): string {
-  if (items.length === 0) {
-    return "No files";
-  }
-
-  const done = items.filter((item) => item.status === "done").length;
-  const failed = items.filter((item) => item.status === "error").length;
-  if (isRunning) {
-    return `${done + failed}/${items.length} processed`;
-  }
-  if (failed > 0) {
-    return `${done} ready, ${failed} failed`;
-  }
-  return `${done} ready / ${items.length} files`;
-}
-
-function formatBatchStatus(status: BatchStatus): string {
-  const labels: Record<BatchStatus, string> = {
-    queued: "Queued",
-    processing: "Processing",
-    done: "Done",
-    error: "Error",
-  };
-  return labels[status];
-}
-
-function formatBatchResult(item: BatchItem): string {
-  if (item.status === "error") {
-    return item.error;
-  }
-  if (item.status === "processing") {
-    return "Processing";
-  }
-  if (item.status === "queued") {
-    return "Waiting";
-  }
-
-  const similarity = item.analysis ? `${item.analysis.visual_similarity_score.toFixed(1)}% match` : "analysis skipped";
-  const size = item.outputBlob ? formatBytes(item.outputBlob.size) : "";
-  return `${item.outputName} · ${size} · ${similarity}`;
-}
-
 function buildOutputFilename(originalName: string, outputFormat: OutputFormat): string {
   const extension = outputFormat.toLowerCase();
   const dotIndex = originalName.lastIndexOf(".");
   const baseName = dotIndex > 0 ? originalName.slice(0, dotIndex) : originalName;
   const stem = baseName.trim() || "image";
   return `${stem}_processed.${extension}`;
-}
-
-function buildBatchZipFilename(): string {
-  const timestamp = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, "");
-  return `batch_processed_${timestamp}.zip`;
 }
 
 function downloadBlob(blob: Blob, filename: string) {
@@ -1172,159 +882,6 @@ function downloadBlob(blob: Blob, filename: string) {
   anchor.click();
   anchor.remove();
   URL.revokeObjectURL(url);
-}
-
-async function createZipBlob(files: Array<{ name: string; blob: Blob }>): Promise<Blob> {
-  const encoder = new TextEncoder();
-  const localParts: Uint8Array[] = [];
-  const centralParts: Uint8Array[] = [];
-  const entries: Array<{ nameBytes: Uint8Array; data: Uint8Array; crc: number; offset: number }> = [];
-  const usedNames = new Set<string>();
-  const dateTime = getDosDateTime(new Date());
-  let offset = 0;
-
-  for (const file of files) {
-    const name = getUniqueZipName(sanitizeZipName(file.name), usedNames);
-    const nameBytes = encoder.encode(name);
-    const data = new Uint8Array(await file.blob.arrayBuffer());
-    const crc = calculateCrc32(data);
-    const header = createLocalZipHeader(nameBytes, data.length, crc, dateTime);
-    entries.push({ nameBytes, data, crc, offset });
-    localParts.push(header, nameBytes, data);
-    offset += header.length + nameBytes.length + data.length;
-  }
-
-  let centralDirectorySize = 0;
-  for (const entry of entries) {
-    const header = createCentralZipHeader(entry.nameBytes, entry.data.length, entry.crc, entry.offset, dateTime);
-    centralParts.push(header, entry.nameBytes);
-    centralDirectorySize += header.length + entry.nameBytes.length;
-  }
-
-  const endRecord = createEndZipRecord(entries.length, centralDirectorySize, offset);
-  const blobParts = [...localParts, ...centralParts, endRecord].map(toArrayBufferPart);
-  return new Blob(blobParts, { type: "application/zip" });
-}
-
-function toArrayBufferPart(bytes: Uint8Array): ArrayBuffer {
-  return (bytes.buffer as ArrayBuffer).slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-}
-
-function sanitizeZipName(name: string): string {
-  const normalized = name.replace(/\\/g, "/").split("/").filter(Boolean).join("_").trim();
-  return normalized || "image";
-}
-
-function getUniqueZipName(name: string, usedNames: Set<string>): string {
-  if (!usedNames.has(name)) {
-    usedNames.add(name);
-    return name;
-  }
-
-  const dotIndex = name.lastIndexOf(".");
-  const stem = dotIndex > 0 ? name.slice(0, dotIndex) : name;
-  const extension = dotIndex > 0 ? name.slice(dotIndex) : "";
-  let index = 2;
-  let nextName = `${stem}_${index}${extension}`;
-  while (usedNames.has(nextName)) {
-    index += 1;
-    nextName = `${stem}_${index}${extension}`;
-  }
-  usedNames.add(nextName);
-  return nextName;
-}
-
-function createLocalZipHeader(
-  nameBytes: Uint8Array,
-  size: number,
-  crc: number,
-  dateTime: { date: number; time: number },
-): Uint8Array {
-  const header = new Uint8Array(30);
-  const view = new DataView(header.buffer);
-  view.setUint32(0, 0x04034b50, true);
-  view.setUint16(4, 20, true);
-  view.setUint16(6, 0, true);
-  view.setUint16(8, 0, true);
-  view.setUint16(10, dateTime.time, true);
-  view.setUint16(12, dateTime.date, true);
-  view.setUint32(14, crc, true);
-  view.setUint32(18, size, true);
-  view.setUint32(22, size, true);
-  view.setUint16(26, nameBytes.length, true);
-  view.setUint16(28, 0, true);
-  return header;
-}
-
-function createCentralZipHeader(
-  nameBytes: Uint8Array,
-  size: number,
-  crc: number,
-  localHeaderOffset: number,
-  dateTime: { date: number; time: number },
-): Uint8Array {
-  const header = new Uint8Array(46);
-  const view = new DataView(header.buffer);
-  view.setUint32(0, 0x02014b50, true);
-  view.setUint16(4, 20, true);
-  view.setUint16(6, 20, true);
-  view.setUint16(8, 0, true);
-  view.setUint16(10, 0, true);
-  view.setUint16(12, dateTime.time, true);
-  view.setUint16(14, dateTime.date, true);
-  view.setUint32(16, crc, true);
-  view.setUint32(20, size, true);
-  view.setUint32(24, size, true);
-  view.setUint16(28, nameBytes.length, true);
-  view.setUint16(30, 0, true);
-  view.setUint16(32, 0, true);
-  view.setUint16(34, 0, true);
-  view.setUint16(36, 0, true);
-  view.setUint32(38, 0, true);
-  view.setUint32(42, localHeaderOffset, true);
-  return header;
-}
-
-function createEndZipRecord(entryCount: number, centralDirectorySize: number, centralDirectoryOffset: number): Uint8Array {
-  const record = new Uint8Array(22);
-  const view = new DataView(record.buffer);
-  view.setUint32(0, 0x06054b50, true);
-  view.setUint16(4, 0, true);
-  view.setUint16(6, 0, true);
-  view.setUint16(8, entryCount, true);
-  view.setUint16(10, entryCount, true);
-  view.setUint32(12, centralDirectorySize, true);
-  view.setUint32(16, centralDirectoryOffset, true);
-  view.setUint16(20, 0, true);
-  return record;
-}
-
-function getDosDateTime(date: Date): { date: number; time: number } {
-  const year = Math.max(1980, date.getFullYear());
-  return {
-    date: ((year - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate(),
-    time: (date.getHours() << 11) | (date.getMinutes() << 5) | Math.floor(date.getSeconds() / 2),
-  };
-}
-
-function createCrc32Table(): Uint32Array {
-  const table = new Uint32Array(256);
-  for (let index = 0; index < 256; index += 1) {
-    let value = index;
-    for (let bit = 0; bit < 8; bit += 1) {
-      value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
-    }
-    table[index] = value >>> 0;
-  }
-  return table;
-}
-
-function calculateCrc32(data: Uint8Array): number {
-  let crc = 0xffffffff;
-  for (const byte of data) {
-    crc = crc32Table[(crc ^ byte) & 0xff] ^ (crc >>> 8);
-  }
-  return (crc ^ 0xffffffff) >>> 0;
 }
 
 function ParamControl(props: { param: PipelineParam; onChange: (patch: Partial<PipelineParam>) => void; onClear: () => void; compact?: boolean }) {
@@ -1514,7 +1071,6 @@ function formatMode(mode: AppMode): string {
   const labels: Record<AppMode, string> = {
     manual: "Manual",
     metadata: "Metadata",
-    batch: "Batch",
   };
   return labels[mode];
 }
