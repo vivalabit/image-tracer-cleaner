@@ -236,7 +236,7 @@ button:disabled {
 
 .pipeline-panel {
   max-height: none;
-  overflow: auto;
+  overflow: visible;
   scrollbar-color: #26384d var(--panel-bg);
 }
 
@@ -1082,6 +1082,7 @@ button:disabled {
 }
 
 .step-card.selected {
+  z-index: 2;
   border-color: var(--accent);
   background: linear-gradient(180deg, rgb(46 168 255 / 10%), rgb(124 92 255 / 5%)), var(--card-bg);
 }
@@ -1154,10 +1155,13 @@ button:disabled {
   position: absolute;
   z-index: 20;
   top: calc(100% + 7px);
-  right: 8px;
+  right: 0;
+  left: auto;
   display: grid;
   gap: 12px;
-  width: min(360px, calc(100vw - 42px));
+  width: 360px;
+  max-width: calc(100vw - 42px);
+  min-width: 0;
   border: 1px solid var(--accent);
   border-radius: 7px;
   padding: 14px;
