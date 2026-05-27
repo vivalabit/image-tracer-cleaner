@@ -511,14 +511,34 @@ button:disabled {
 
 .preview-stage.slider {
   grid-template-columns: 1fr;
+  overflow: hidden;
+  cursor: ew-resize;
+  touch-action: none;
+  user-select: none;
+  --slider-position: 50%;
+}
+
+.preview-stage.slider .image-viewport.source,
+.preview-stage.slider .image-viewport.output {
+  grid-area: 1 / 1;
 }
 
 .preview-stage.slider .image-viewport.output {
   position: absolute;
-  inset: 0 0 0 50%;
+  inset: 0;
   z-index: 1;
   overflow: hidden;
-  border-left: 2px solid var(--accent);
+  border-left: 0;
+  clip-path: inset(0 0 0 var(--slider-position));
+}
+
+.preview-stage.slider .image-viewport.output figcaption {
+  justify-content: flex-end;
+}
+
+.preview-stage.slider .image-viewport.output img,
+.preview-stage.slider .mock-image.output {
+  transform: none;
 }
 
 .preview-stage.difference .image-viewport.source {
@@ -551,11 +571,12 @@ button:disabled {
   display: grid;
   place-items: center;
   width: 100%;
-  min-height: clamp(420px, 46vh, 455px);
+  height: clamp(504px, calc(46vh + 84px), 539px);
   border: 0;
   padding: 42px;
   background: var(--app-bg);
   color: inherit;
+  overflow: hidden;
 }
 
 .image-picker {
@@ -594,8 +615,10 @@ button:disabled {
 
 .image-canvas img {
   display: block;
-  max-width: 100%;
-  max-height: 560px;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
   object-fit: contain;
   border-radius: 7px;
   box-shadow:
@@ -691,11 +714,15 @@ button:disabled {
   position: absolute;
   top: 58px;
   bottom: 0;
-  left: 50%;
-  z-index: 2;
+  left: var(--slider-position);
+  z-index: 3;
   width: 2px;
+  border: 0;
+  padding: 0;
   background: var(--accent);
+  cursor: ew-resize;
   box-shadow: 0 0 12px rgb(46 168 255 / 36%);
+  transform: translateX(-1px);
 }
 
 .slider-handle::after {
@@ -718,6 +745,17 @@ button:disabled {
   box-shadow:
     0 0 0 4px rgb(46 168 255 / 10%),
     0 0 14px rgb(46 168 255 / 22%);
+}
+
+.slider-handle:focus-visible {
+  outline: none;
+}
+
+.slider-handle:focus-visible::after {
+  box-shadow:
+    0 0 0 4px rgb(46 168 255 / 18%),
+    0 0 0 6px rgb(255 255 255 / 28%),
+    0 0 18px rgb(46 168 255 / 28%);
 }
 
 .image-lightbox {
@@ -834,25 +872,43 @@ button:disabled {
 
 .lightbox-stage.slider {
   grid-template-columns: 1fr;
+  cursor: ew-resize;
+  touch-action: none;
+  user-select: none;
+  --slider-position: 50%;
+}
+
+.lightbox-stage.slider .lightbox-frame.source,
+.lightbox-stage.slider .lightbox-frame.output {
+  grid-area: 1 / 1;
 }
 
 .lightbox-stage.slider .lightbox-frame.output {
   position: absolute;
-  inset: 0 0 0 50%;
+  inset: 0;
   z-index: 1;
   overflow: hidden;
-  border-left: 2px solid var(--accent);
+  border-left: 0;
+  clip-path: inset(0 0 0 var(--slider-position));
+}
+
+.lightbox-stage.slider .lightbox-frame.output figcaption {
+  justify-content: flex-end;
 }
 
 .lightbox-slider-handle {
   position: absolute;
   top: 52px;
   bottom: 0;
-  left: 50%;
-  z-index: 2;
+  left: var(--slider-position);
+  z-index: 3;
   width: 2px;
+  border: 0;
+  padding: 0;
   background: var(--accent);
+  cursor: ew-resize;
   box-shadow: 0 0 14px rgb(46 168 255 / 42%);
+  transform: translateX(-1px);
 }
 
 .lightbox-slider-handle::after {
@@ -875,6 +931,17 @@ button:disabled {
   box-shadow:
     0 0 0 4px rgb(46 168 255 / 10%),
     0 0 16px rgb(46 168 255 / 24%);
+}
+
+.lightbox-slider-handle:focus-visible {
+  outline: none;
+}
+
+.lightbox-slider-handle:focus-visible::after {
+  box-shadow:
+    0 0 0 4px rgb(46 168 255 / 18%),
+    0 0 0 6px rgb(255 255 255 / 28%),
+    0 0 20px rgb(46 168 255 / 30%);
 }
 
 .lightbox-stage.difference {
@@ -1650,16 +1717,14 @@ button:disabled {
   .lightbox-stage.slider {
     grid-template-columns: 1fr;
     min-height: auto;
+  }
+
+  .lightbox-stage {
     overflow: auto;
   }
 
-  .lightbox-stage.slider .lightbox-frame.output {
-    position: static;
-    border-left: 0;
-  }
-
-  .lightbox-slider-handle {
-    display: none;
+  .lightbox-stage.slider {
+    overflow: hidden;
   }
 
   .lightbox-canvas {
@@ -1671,17 +1736,8 @@ button:disabled {
     max-height: 70vh;
   }
 
-  .preview-stage.slider .image-viewport.output {
-    position: static;
-    border-left: 0;
-  }
-
-  .slider-handle {
-    display: none;
-  }
-
   .image-canvas {
-    min-height: 300px;
+    height: 340px;
     padding: 20px;
   }
 

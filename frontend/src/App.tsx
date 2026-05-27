@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ChangeEvent } from "react";
+import type { CSSProperties, ChangeEvent, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
 
 import { analyzeImages, fetchMethods, randomizeImage, readImageMetadata } from "./api";
 import type {
@@ -77,6 +77,8 @@ const fallbackMethods: MethodDefinition[] = [
 function App() {
   const [previewMode, setPreviewMode] = useState<PreviewMode>("compare");
   const [lightboxMode, setLightboxMode] = useState<PreviewMode>("compare");
+  const [previewSliderPosition, setPreviewSliderPosition] = useState(50);
+  const [lightboxSliderPosition, setLightboxSliderPosition] = useState(50);
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
   const [metadataTab, setMetadataTab] = useState<MetadataTab>("overview");
   const [pipeline, setPipeline] = useState<PipelineStep[]>([]);
@@ -346,6 +348,7 @@ function App() {
     }
 
     setLightboxMode(previewMode);
+    setLightboxSliderPosition(previewSliderPosition);
     setIsLightboxOpen(true);
   }
 
@@ -562,10 +565,32 @@ function App() {
             </div>
           </div>
 
-          <div className={`preview-stage ${previewMode}`}>
+          <div
+            className={`preview-stage ${previewMode}`}
+            style={previewMode === "slider" ? getSliderStyle(previewSliderPosition) : undefined}
+            onPointerDown={
+              previewMode === "slider"
+                ? (event) => handleSliderPointerDown(event, setPreviewSliderPosition)
+                : undefined
+            }
+            onPointerMove={
+              previewMode === "slider"
+                ? (event) => handleSliderPointerMove(event, setPreviewSliderPosition)
+                : undefined
+            }
+            onPointerUp={previewMode === "slider" ? releaseSliderPointer : undefined}
+            onPointerCancel={previewMode === "slider" ? releaseSliderPointer : undefined}
+          >
             <ImageViewport title="Source" imageUrl={sourceUrl} variant="source" onPickImage={openImagePicker} />
             <ImageViewport title="Output" imageUrl={outputUrl} variant="output" onOpenImage={openOutputLightbox} />
-            {previewMode === "slider" ? <div className="slider-handle" aria-hidden="true" /> : null}
+            {previewMode === "slider" ? (
+              <ComparisonSliderHandle
+                className="slider-handle"
+                label="Compare source and output"
+                position={previewSliderPosition}
+                onPositionChange={setPreviewSliderPosition}
+              />
+            ) : null}
           </div>
 
           <div className="metric-strip" aria-label="Render metrics">
@@ -728,8 +753,10 @@ function App() {
           mode={lightboxMode}
           outputUrl={outputUrl}
           sourceUrl={sourceUrl}
+          sliderPosition={lightboxSliderPosition}
           onClose={() => setIsLightboxOpen(false)}
           onModeChange={setLightboxMode}
+          onSliderPositionChange={setLightboxSliderPosition}
         />
       ) : null}
     </main>
@@ -773,8 +800,10 @@ function ImageCompareDialog(props: {
   mode: PreviewMode;
   outputUrl: string;
   sourceUrl: string;
+  sliderPosition: number;
   onClose: () => void;
   onModeChange: (mode: PreviewMode) => void;
+  onSliderPositionChange: (position: number) => void;
 }) {
   return (
     <div className="image-lightbox" role="presentation" onClick={props.onClose}>
@@ -803,7 +832,22 @@ function ImageCompareDialog(props: {
           </div>
         </div>
 
-        <div className={`lightbox-stage ${props.mode}`}>
+        <div
+          className={`lightbox-stage ${props.mode}`}
+          style={props.mode === "slider" ? getSliderStyle(props.sliderPosition) : undefined}
+          onPointerDown={
+            props.mode === "slider"
+              ? (event) => handleSliderPointerDown(event, props.onSliderPositionChange)
+              : undefined
+          }
+          onPointerMove={
+            props.mode === "slider"
+              ? (event) => handleSliderPointerMove(event, props.onSliderPositionChange)
+              : undefined
+          }
+          onPointerUp={props.mode === "slider" ? releaseSliderPointer : undefined}
+          onPointerCancel={props.mode === "slider" ? releaseSliderPointer : undefined}
+        >
           <figure className="lightbox-frame source">
             <figcaption>Source</figcaption>
             <div className="lightbox-canvas">
@@ -816,11 +860,119 @@ function ImageCompareDialog(props: {
               <img src={props.outputUrl} alt="Output large preview" />
             </div>
           </figure>
-          {props.mode === "slider" ? <div className="lightbox-slider-handle" aria-hidden="true" /> : null}
+          {props.mode === "slider" ? (
+            <ComparisonSliderHandle
+              className="lightbox-slider-handle"
+              label="Compare large source and output"
+              position={props.sliderPosition}
+              onPositionChange={props.onSliderPositionChange}
+            />
+          ) : null}
         </div>
       </section>
     </div>
   );
+}
+
+function ComparisonSliderHandle(props: {
+  className: string;
+  label: string;
+  position: number;
+  onPositionChange: (position: number) => void;
+}) {
+  return (
+    <div
+      className={props.className}
+      role="slider"
+      tabIndex={0}
+      aria-label={props.label}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={Math.round(props.position)}
+      onKeyDown={(event) => handleSliderKeyDown(event, props.position, props.onPositionChange)}
+    />
+  );
+}
+
+function handleSliderPointerDown(
+  event: ReactPointerEvent<HTMLDivElement>,
+  onPositionChange: (position: number) => void,
+) {
+  if (event.pointerType === "mouse" && event.button !== 0) {
+    return;
+  }
+
+  event.currentTarget.setPointerCapture(event.pointerId);
+  updateSliderFromPointer(event, onPositionChange);
+}
+
+function handleSliderPointerMove(
+  event: ReactPointerEvent<HTMLDivElement>,
+  onPositionChange: (position: number) => void,
+) {
+  if (event.buttons !== 1) {
+    return;
+  }
+
+  updateSliderFromPointer(event, onPositionChange);
+}
+
+function releaseSliderPointer(event: ReactPointerEvent<HTMLDivElement>) {
+  if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  }
+}
+
+function updateSliderFromPointer(
+  event: ReactPointerEvent<HTMLDivElement>,
+  onPositionChange: (position: number) => void,
+) {
+  const rect = event.currentTarget.getBoundingClientRect();
+  const nextPosition = ((event.clientX - rect.left) / rect.width) * 100;
+  onPositionChange(clampSliderPosition(nextPosition));
+}
+
+function handleSliderKeyDown(
+  event: ReactKeyboardEvent<HTMLDivElement>,
+  position: number,
+  onPositionChange: (position: number) => void,
+) {
+  const step = event.shiftKey ? 10 : 5;
+
+  if (event.key === "ArrowLeft" || event.key === "ArrowDown") {
+    event.preventDefault();
+    onPositionChange(clampSliderPosition(position - step));
+    return;
+  }
+
+  if (event.key === "ArrowRight" || event.key === "ArrowUp") {
+    event.preventDefault();
+    onPositionChange(clampSliderPosition(position + step));
+    return;
+  }
+
+  if (event.key === "Home") {
+    event.preventDefault();
+    onPositionChange(0);
+    return;
+  }
+
+  if (event.key === "End") {
+    event.preventDefault();
+    onPositionChange(100);
+  }
+}
+
+function getSliderStyle(position: number): CSSProperties {
+  return { "--slider-position": `${clampSliderPosition(position)}%` } as CSSProperties;
+}
+
+function clampSliderPosition(position: number): number {
+  if (!Number.isFinite(position)) {
+    return 50;
+  }
+
+  return Math.min(100, Math.max(0, position));
 }
 
 function MockImage(props: { variant: "source" | "output"; actionLabel?: string }) {
