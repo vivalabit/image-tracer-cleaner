@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Neon strawberry logo">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="41%" r="76%">
+      <stop offset="0" stop-color="#07192a" />
+      <stop offset="0.48" stop-color="#020815" />
+      <stop offset="1" stop-color="#00030a" />
+    </radialGradient>
+    <filter id="pinkGlow" x="-25%" y="-25%" width="150%" height="150%">
+      <feGaussianBlur stdDeviation="4" result="soft" />
+      <feMerge>
+        <feMergeNode in="soft" />
+        <feMergeNode in="soft" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+    <filter id="greenGlow" x="-35%" y="-35%" width="170%" height="170%">
+      <feGaussianBlur stdDeviation="5" result="soft" />
+      <feMerge>
+        <feMergeNode in="soft" />
+        <feMergeNode in="soft" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+    <filter id="halo" x="-45%" y="-45%" width="190%" height="190%">
+      <feGaussianBlur stdDeviation="24" />
+    </filter>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#bg)" />
+  <path
+    d="M335 331c-80 24-137 100-137 193 0 104 72 207 156 292 61 62 103 93 158 93s97-31 158-93c84-85 156-188 156-292 0-93-57-169-137-193"
+    fill="none"
+    stroke="#ff0f66"
+    stroke-linecap="round"
+    stroke-width="40"
+    filter="url(#halo)"
+    opacity=".38"
+  />
+  <path
+    d="M335 331c-80 24-137 100-137 193 0 104 72 207 156 292 61 62 103 93 158 93s97-31 158-93c84-85 156-188 156-292 0-93-57-169-137-193"
+    fill="none"
+    stroke="#ff2d6f"
+    stroke-linecap="round"
+    stroke-width="11"
+    filter="url(#pinkGlow)"
+  />
+  <path
+    d="M335 331c-80 24-137 100-137 193 0 104 72 207 156 292 61 62 103 93 158 93s97-31 158-93c84-85 156-188 156-292 0-93-57-169-137-193"
+    fill="none"
+    stroke="#fff7fb"
+    stroke-linecap="round"
+    stroke-width="4"
+  />
+  <g fill="none" stroke-linecap="round">
+    <path d="M504 333c-97-78-179-59-240-27 32 73 108 96 190 72-30 52-66 85-126 92 57 33 136 21 179-45-16 65 7 118 55 159 40-42 62-93 46-159 43 66 122 78 179 45-60-7-96-40-126-92 82 24 158 1 190-72-61-32-143-51-240 27 0-81 24-143 78-184-30-47-89-24-118 28-25 45-29 99-21 156Z" stroke="#2dff78" stroke-width="40" filter="url(#halo)" opacity=".36" />
+    <path d="M504 333c-97-78-179-59-240-27 32 73 108 96 190 72-30 52-66 85-126 92 57 33 136 21 179-45-16 65 7 118 55 159 40-42 62-93 46-159 43 66 122 78 179 45-60-7-96-40-126-92 82 24 158 1 190-72-61-32-143-51-240 27 0-81 24-143 78-184-30-47-89-24-118 28-25 45-29 99-21 156Z" stroke="#38ff78" stroke-width="12" filter="url(#greenGlow)" />
+    <path d="M504 333c-97-78-179-59-240-27 32 73 108 96 190 72-30 52-66 85-126 92 57 33 136 21 179-45-16 65 7 118 55 159 40-42 62-93 46-159 43 66 122 78 179 45-60-7-96-40-126-92 82 24 158 1 190-72-61-32-143-51-240 27 0-81 24-143 78-184-30-47-89-24-118 28-25 45-29 99-21 156Z" stroke="#effff4" stroke-width="4" />
+  </g>
+  <g fill="none" stroke-linecap="round" stroke-width="10" filter="url(#pinkGlow)">
+    <ellipse cx="330" cy="515" rx="16" ry="32" transform="rotate(-18 330 515)" stroke="#ff2d6f" />
+    <ellipse cx="455" cy="504" rx="16" ry="32" transform="rotate(-6 455 504)" stroke="#ff2d6f" />
+    <ellipse cx="574" cy="504" rx="16" ry="32" transform="rotate(12 574 504)" stroke="#ff2d6f" />
+    <ellipse cx="695" cy="518" rx="16" ry="32" transform="rotate(17 695 518)" stroke="#ff2d6f" />
+    <ellipse cx="414" cy="626" rx="16" ry="32" transform="rotate(-22 414 626)" stroke="#ff2d6f" />
+    <ellipse cx="512" cy="620" rx="16" ry="32" stroke="#ff2d6f" />
+    <ellipse cx="613" cy="627" rx="16" ry="32" transform="rotate(21 613 627)" stroke="#ff2d6f" />
+    <ellipse cx="462" cy="746" rx="16" ry="32" transform="rotate(-18 462 746)" stroke="#ff2d6f" />
+    <ellipse cx="560" cy="746" rx="16" ry="32" transform="rotate(21 560 746)" stroke="#ff2d6f" />
+  </g>
+  <g fill="none" stroke="#fff9fb" stroke-linecap="round" stroke-width="4">
+    <ellipse cx="330" cy="515" rx="16" ry="32" transform="rotate(-18 330 515)" />
+    <ellipse cx="455" cy="504" rx="16" ry="32" transform="rotate(-6 455 504)" />
+    <ellipse cx="574" cy="504" rx="16" ry="32" transform="rotate(12 574 504)" />
+    <ellipse cx="695" cy="518" rx="16" ry="32" transform="rotate(17 695 518)" />
+    <ellipse cx="414" cy="626" rx="16" ry="32" transform="rotate(-22 414 626)" />
+    <ellipse cx="512" cy="620" rx="16" ry="32" />
+    <ellipse cx="613" cy="627" rx="16" ry="32" transform="rotate(21 613 627)" />
+    <ellipse cx="462" cy="746" rx="16" ry="32" transform="rotate(-18 462 746)" />
+    <ellipse cx="560" cy="746" rx="16" ry="32" transform="rotate(21 560 746)" />
+  </g>
+</svg>

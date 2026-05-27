@@ -14,7 +14,6 @@ import type {
   RecipeStep,
 } from "./types";
 
-type AppMode = "manual" | "metadata";
 type PreviewMode = "compare" | "slider" | "difference";
 type MetadataTab = "overview" | "exif" | "iptc" | "xmp" | "output";
 type ParamMode = "manual" | "random";
@@ -56,8 +55,26 @@ const endpointRows = [
   { method: "POST", path: "/api/analyze", note: "result analysis" },
 ];
 
+const fallbackMethods: MethodDefinition[] = [
+  createFallbackMethod("hmirror", "Horizontal mirror"),
+  createFallbackMethod("vmirror", "Vertical mirror"),
+  createFallbackMethod("invert", "Invert colors"),
+  createFallbackMethod("grayscale", "Grayscale"),
+  createFallbackMethod("crop", "Crop"),
+  createFallbackMethod("fixresize", "Fixed resize"),
+  createFallbackMethod("resize", "Unfixed resize"),
+  createFallbackMethod("interference", "Noise"),
+  createFallbackMethod("rotate", "Rotate"),
+  createFallbackMethod("border", "Border"),
+  createFallbackMethod("sharp", "Contrast"),
+  createFallbackMethod("blur", "Blur"),
+  createFallbackMethod("eskiz", "Sketch"),
+  createFallbackMethod("pixelization", "Pixelization"),
+  createFallbackMethod("move", "Move"),
+  createFallbackMethod("metadata", "Metadata"),
+];
+
 function App() {
-  const [mode, setMode] = useState<AppMode>("manual");
   const [previewMode, setPreviewMode] = useState<PreviewMode>("compare");
   const [metadataTab, setMetadataTab] = useState<MetadataTab>("overview");
   const [pipeline, setPipeline] = useState<PipelineStep[]>([]);
@@ -84,6 +101,7 @@ function App() {
   const outputUrlRef = useRef("");
   const previewAbortController = useRef<AbortController | null>(null);
   const previewRequestId = useRef(0);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -178,7 +196,8 @@ function App() {
   );
 
   const activeSteps = useMemo(() => pipeline.filter((step) => step.enabled), [pipeline]);
-  const methodsByName = useMemo(() => new Map(methods.map((method) => [method.name, method])), [methods]);
+  const displayMethods = methods.length > 0 ? methods : fallbackMethods;
+  const methodsByName = useMemo(() => new Map(displayMethods.map((method) => [method.name, method])), [displayMethods]);
   const visibleMetadataRows = useMemo(
     () => buildMetadataRows(metadata, metadataTab, metadataError, isReadingMetadata),
     [isReadingMetadata, metadata, metadataError, metadataTab],
@@ -288,6 +307,10 @@ function App() {
     setFile(event.target.files?.[0] ?? null);
   }
 
+  function openImagePicker() {
+    fileInputRef.current?.click();
+  }
+
   function invalidateRenderedOutput() {
     previewRequestId.current += 1;
     previewAbortController.current?.abort();
@@ -325,20 +348,6 @@ function App() {
     if (previousUrl) {
       URL.revokeObjectURL(previousUrl);
     }
-  }
-
-  function updateStep(stepId: string, patch: Partial<PipelineStep>) {
-    setPipeline((current) =>
-      current.map((step) => {
-        if (step.id !== stepId) {
-          return step;
-        }
-
-        const next = { ...step, ...patch };
-        return { ...next, params: controlsToParams(next.paramControls) };
-      }),
-    );
-    invalidateRenderedOutput();
   }
 
   function updateParam(stepId: string, paramId: string, patch: Partial<PipelineParam>) {
@@ -419,75 +428,80 @@ function App() {
       <header className="topbar">
         <div className="brand-lockup">
           <span className="app-mark" aria-hidden="true">
-            IR
+            <img className="strawberry-logo" src="/logo.png" alt="" />
           </span>
           <div>
-            <h1>Image Randomizer Studio</h1>
-            <p>Frontend prototype</p>
+            <h1>Image TC</h1>
           </div>
         </div>
         <div className="topbar-actions">
-          <span className={apiStatus ? "status-pill warning" : "status-pill"}>{apiStatus ? "API offline" : "API ready"}</span>
+          <span className={apiStatus ? "status-pill warning" : "status-pill"}>
+            <span aria-hidden="true" />
+            {apiStatus ? "API offline" : "API ready"}
+          </span>
           <button type="button" className="primary-button" disabled={primaryActionDisabled} onClick={handleExport}>
+            <span className="button-icon" aria-hidden="true">
+              ^
+            </span>
             {primaryActionLabel}
           </button>
         </div>
       </header>
 
+      <input ref={fileInputRef} className="hidden-file-input" type="file" accept="image/*" onChange={handleFileChange} />
+
       <section className="workspace">
         <aside className="control-panel" aria-label="Project controls">
-          <label className="file-drop">
-            <span className="eyebrow">Input image</span>
-            <input type="file" accept="image/*" onChange={handleFileChange} />
-            <strong>{file ? file.name : "Choose image"}</strong>
-            <small>{file ? `${Math.round(file.size / 1024)} KB` : "PNG, JPEG, WEBP"}</small>
-          </label>
-
-          <div className="segmented-control" aria-label="Mode">
-            {(["manual", "metadata"] as const).map((nextMode) => (
-              <button
-                key={nextMode}
-                type="button"
-                className={mode === nextMode ? "active" : ""}
-                onClick={() => setMode(nextMode)}
-              >
-                {formatMode(nextMode)}
-              </button>
-            ))}
+          <div className="control-section recipe-picker">
+            <div className="control-title">
+              <span className="eyebrow">Recipe</span>
+              <strong>{displayMethods.length} effects</strong>
+            </div>
+            <div className="add-step-grid available-effects">
+              {displayMethods.map((method) => (
+                <button key={method.name} type="button" onClick={() => addStep(method.name)}>
+                  <span className="method-icon" aria-hidden="true">
+                    <OperationIcon name={method.name} />
+                  </span>
+                  <span className="method-title">{method.title}</span>
+                </button>
+              ))}
+            </div>
           </div>
 
           <label className="field">
             <span>Seed</span>
-            <input
-              value={seed}
-              inputMode="numeric"
-              onChange={(event) => {
-                setSeed(event.target.value);
-                invalidateRenderedOutput();
-              }}
-            />
+            <div className="field-shell">
+              <input
+                value={seed}
+                inputMode="numeric"
+                onChange={(event) => {
+                  setSeed(event.target.value);
+                  invalidateRenderedOutput();
+                }}
+              />
+              <span aria-hidden="true">D6</span>
+            </div>
           </label>
 
           <label className="field">
             <span>Output format</span>
-            <select
-              value={outputFormat}
-              onChange={(event) => {
-                const nextFormat = event.target.value as OutputFormat;
-                setOutputFormat(nextFormat);
-                invalidateRenderedOutput();
-              }}
-            >
-              <option>PNG</option>
-              <option>JPEG</option>
-              <option>WEBP</option>
-            </select>
+            <div className="field-shell select-shell">
+              <span aria-hidden="true">DOC</span>
+              <select
+                value={outputFormat}
+                onChange={(event) => {
+                  const nextFormat = event.target.value as OutputFormat;
+                  setOutputFormat(nextFormat);
+                  invalidateRenderedOutput();
+                }}
+              >
+                <option>PNG</option>
+                <option>JPEG</option>
+                <option>WEBP</option>
+              </select>
+            </div>
           </label>
-
-          <div className="workflow-actions" aria-label="Workflow actions">
-            <span className="eyebrow">Workflow</span>
-            <small>Recipe changes render automatically on the preview image.</small>
-          </div>
         </aside>
 
         <section className="preview-panel" aria-label="Image preview">
@@ -511,7 +525,7 @@ function App() {
           </div>
 
           <div className={`preview-stage ${previewMode}`}>
-            <ImageViewport title="Source" imageUrl={sourceUrl} variant="source" />
+            <ImageViewport title="Source" imageUrl={sourceUrl} variant="source" onPickImage={openImagePicker} />
             <ImageViewport title="Output" imageUrl={outputUrl} variant="output" />
             {previewMode === "slider" ? <div className="slider-handle" aria-hidden="true" /> : null}
           </div>
@@ -526,77 +540,65 @@ function App() {
           {analysisError ? <p className="inline-error">{analysisError}</p> : null}
         </section>
 
-        <aside className="pipeline-panel" aria-label="Pipeline builder">
-          <div className="panel-header compact">
-            <div>
-              <span className="eyebrow">Pipeline</span>
-              <h2>Recipe</h2>
-            </div>
+        <aside className="pipeline-panel selected-effects-panel" aria-label="Selected effects">
+          <div className="selected-effects-header">
+            <h2>Selected effects</h2>
             <span className="recipe-count">{pipeline.length} steps</span>
           </div>
 
           <div className="step-list">
-            {pipeline.map((step, index) => (
-              <article
-                key={step.id}
-                className={`step-card ${openSettingsStepId === step.id ? "selected" : ""}`}
-              >
-                <div className="step-order">{index + 1}</div>
-                <div className="step-main">
-                  <div className="step-title-row">
-                    <strong>{step.title}</strong>
-                    <span className={`impact-badge ${step.impact}`}>{step.impact}</span>
+            {pipeline.length > 0 ? (
+              pipeline.map((step, index) => (
+                <article
+                  key={step.id}
+                  className={`step-card ${openSettingsStepId === step.id ? "selected" : ""}`}
+                >
+                  <div className="step-order">{index + 1}</div>
+                  <div className="step-main">
+                    <div className="step-title-row">
+                      <strong>{step.title}</strong>
+                      <span className={`impact-badge ${step.impact}`}>{step.impact}</span>
+                    </div>
+                    <span>{step.category}</span>
                   </div>
-                  <span>{step.category}</span>
-                </div>
-                <div className="step-actions">
-                  <button
-                    type="button"
-                    title="Settings"
-                    aria-label={`Settings for ${step.title}`}
-                    className={openSettingsStepId === step.id ? "icon-button active" : "icon-button"}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      setOpenSettingsStepId((current) => (current === step.id ? null : step.id));
-                    }}
-                  >
-                    &#9881;
-                  </button>
-                  <button
-                    type="button"
-                    title="Delete"
-                    aria-label="Delete"
-                    className="icon-button danger"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      removeStep(step.id);
-                    }}
-                  >
-                    x
-                  </button>
-                </div>
-                {openSettingsStepId === step.id ? (
-                  <StepSettingsMenu
-                    step={step}
-                    onClearParam={(paramId) => clearParam(step.id, paramId)}
-                    onParamChange={(paramId, patch) => updateParam(step.id, paramId, patch)}
-                    onRandomize={() => randomizeStepSettings(step.id)}
-                    onToggleEnabled={() => updateStep(step.id, { enabled: !step.enabled })}
-                  />
-                ) : null}
-              </article>
-            ))}
-          </div>
-
-          <div className="add-step-grid">
-            {methods.length > 0 ? (
-              methods.map((method) => (
-                <button key={method.name} type="button" onClick={() => addStep(method.name)}>
-                  + {method.title}
-                </button>
+                  <div className="step-actions">
+                    <button
+                      type="button"
+                      title="Settings"
+                      aria-label={`Settings for ${step.title}`}
+                      className={openSettingsStepId === step.id ? "icon-button active" : "icon-button"}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setOpenSettingsStepId((current) => (current === step.id ? null : step.id));
+                      }}
+                    >
+                      &#9881;
+                    </button>
+                    <button
+                      type="button"
+                      title="Delete"
+                      aria-label="Delete"
+                      className="icon-button danger"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        removeStep(step.id);
+                      }}
+                    >
+                      x
+                    </button>
+                  </div>
+                  {openSettingsStepId === step.id ? (
+                    <StepSettingsMenu
+                      step={step}
+                      onClearParam={(paramId) => clearParam(step.id, paramId)}
+                      onParamChange={(paramId, patch) => updateParam(step.id, paramId, patch)}
+                      onRandomize={() => randomizeStepSettings(step.id)}
+                    />
+                  ) : null}
+                </article>
               ))
             ) : (
-              <div className="empty-row">{apiStatus ? "Operations unavailable" : "Loading operations"}</div>
+              <div className="selected-empty">No selected effects</div>
             )}
           </div>
         </aside>
@@ -608,6 +610,28 @@ function App() {
             <div>
               <span className="eyebrow">Metadata</span>
               <h2>{metadata ? "Read-only scan" : "No file"}</h2>
+            </div>
+          </div>
+
+          <div className="metadata-summary">
+            <span className="metadata-icon" aria-hidden="true">
+              DOC
+            </span>
+            <div>
+              <span>Format</span>
+              <strong>{metadata?.format ?? "--"}</strong>
+            </div>
+            <div>
+              <span>Width</span>
+              <strong>{metadata ? metadata.dimensions.width : "--"}</strong>
+            </div>
+            <div>
+              <span>Height</span>
+              <strong>{metadata ? metadata.dimensions.height : "--"}</strong>
+            </div>
+            <div>
+              <span>Size</span>
+              <strong>{file ? `${Math.round(file.size / 1024)} KB` : "--"}</strong>
             </div>
           </div>
 
@@ -643,6 +667,9 @@ function App() {
               <h2>Contract draft</h2>
             </div>
             <button type="button" className="ghost-button small-button">
+              <span className="button-icon" aria-hidden="true">
+                ?
+              </span>
               Open docs
             </button>
           </div>
@@ -663,20 +690,28 @@ function App() {
   );
 }
 
-function ImageViewport(props: { title: string; imageUrl: string; variant: "source" | "output" }) {
+function ImageViewport(props: { title: string; imageUrl: string; variant: "source" | "output"; onPickImage?: () => void }) {
+  const shouldShowPickerLabel = props.variant === "source" && !props.imageUrl;
+  const content = props.imageUrl ? <img src={props.imageUrl} alt={props.title} /> : <MockImage variant={props.variant} actionLabel={shouldShowPickerLabel ? "Choose image" : undefined} />;
+
   return (
     <figure className={`image-viewport ${props.variant}`}>
       <figcaption>{props.title}</figcaption>
-      <div className="image-canvas">
-        {props.imageUrl ? <img src={props.imageUrl} alt={props.title} /> : <MockImage variant={props.variant} />}
-      </div>
+      {props.onPickImage ? (
+        <button type="button" className="image-canvas image-picker" onClick={props.onPickImage} aria-label="Choose source image">
+          {content}
+        </button>
+      ) : (
+        <div className="image-canvas">{content}</div>
+      )}
     </figure>
   );
 }
 
-function MockImage(props: { variant: "source" | "output" }) {
+function MockImage(props: { variant: "source" | "output"; actionLabel?: string }) {
   return (
     <div className={`mock-image ${props.variant}`} aria-label={`${props.variant} mock image`}>
+      {props.actionLabel ? <span className="mock-action-label">{props.actionLabel}</span> : null}
       <span className="mock-sky" />
       <span className="mock-block primary" />
       <span className="mock-block secondary" />
@@ -689,8 +724,13 @@ function MockImage(props: { variant: "source" | "output" }) {
 function Metric(props: { label: string; value: string; tone: "good" | "warn" | "info" }) {
   return (
     <div className={`metric ${props.tone}`}>
-      <span>{props.label}</span>
-      <strong>{props.value}</strong>
+      <span className="metric-icon" aria-hidden="true">
+        {getMetricIcon(props.label)}
+      </span>
+      <div>
+        <span>{props.label}</span>
+        <strong>{props.value}</strong>
+      </div>
     </div>
   );
 }
@@ -700,7 +740,6 @@ function StepSettingsMenu(props: {
   onClearParam: (paramId: string) => void;
   onParamChange: (paramId: string, patch: Partial<PipelineParam>) => void;
   onRandomize: () => void;
-  onToggleEnabled: () => void;
 }) {
   const canRandomize = props.step.paramControls.some(canRandomizeParam);
 
@@ -711,10 +750,6 @@ function StepSettingsMenu(props: {
           <span className="eyebrow">Filter settings</span>
           <strong>{props.step.title}</strong>
         </div>
-        <label className="toggle-param">
-          <input type="checkbox" checked={props.step.enabled} onChange={props.onToggleEnabled} />
-          <span>Active</span>
-        </label>
       </div>
 
       <button type="button" className="ghost-button small-button random-filter-button" disabled={!canRandomize} onClick={props.onRandomize}>
@@ -1067,14 +1102,6 @@ function renderRandomParamInput(param: PipelineParam, onChange: (patch: Partial<
   );
 }
 
-function formatMode(mode: AppMode): string {
-  const labels: Record<AppMode, string> = {
-    manual: "Manual",
-    metadata: "Metadata",
-  };
-  return labels[mode];
-}
-
 function formatPreviewMode(mode: PreviewMode): string {
   const labels: Record<PreviewMode, string> = {
     compare: "Side by side",
@@ -1082,6 +1109,200 @@ function formatPreviewMode(mode: PreviewMode): string {
     difference: "Diff",
   };
   return labels[mode];
+}
+
+function getMetricIcon(label: string): string {
+  if (label === "Visual match") {
+    return "+";
+  }
+  if (label === "Hash") {
+    return "#";
+  }
+  if (label === "Metadata") {
+    return "DOC";
+  }
+  return "O";
+}
+
+function OperationIcon(props: { name: string }) {
+  const iconProps = {
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+  };
+
+  switch (props.name) {
+    case "hmirror":
+      return (
+        <svg {...iconProps}>
+          <path d="M12 4v16" />
+          <path d="M4 7v10l6-5-6-5Z" />
+          <path d="M20 7v10l-6-5 6-5Z" />
+        </svg>
+      );
+    case "vmirror":
+      return (
+        <svg {...iconProps}>
+          <path d="M4 12h16" />
+          <path d="M7 4h10l-5 6-5-6Z" />
+          <path d="M7 20h10l-5-6-5 6Z" />
+          <path d="M17 5l3-3" />
+          <path d="M19 9l3-3" />
+        </svg>
+      );
+    case "invert":
+    case "border":
+      return (
+        <svg {...iconProps}>
+          <path d="M12 3s6 6.2 6 10a6 6 0 0 1-12 0c0-3.8 6-10 6-10Z" />
+          <path d="M12 9v8" />
+        </svg>
+      );
+    case "grayscale":
+      return (
+        <svg {...iconProps}>
+          <circle cx="9" cy="12" r="5" fill="currentColor" fillOpacity="0.78" stroke="none" />
+          <circle cx="15" cy="12" r="5" fill="#9aa8b8" fillOpacity="0.86" stroke="none" />
+          <path d="M12 8a5 5 0 0 1 0 8" stroke="#d7e2ec" />
+        </svg>
+      );
+    case "crop":
+      return (
+        <svg {...iconProps}>
+          <path d="M6 3v15h15" />
+          <path d="M3 6h15v15" />
+          <path d="M9 9h6v6H9z" />
+        </svg>
+      );
+    case "fixresize":
+      return (
+        <svg {...iconProps}>
+          <path d="M5 5h14v14H5z" />
+          <path d="M9 9h6v6H9z" strokeDasharray="2 2" />
+          <path d="M7 3v4" />
+          <path d="M17 17v4" />
+        </svg>
+      );
+    case "resize":
+      return (
+        <svg {...iconProps}>
+          <path d="M7 7h10v10H7z" />
+          <path d="M3 9l4-4 4 4" />
+          <path d="M21 15l-4 4-4-4" />
+          <path d="M7 5v4" />
+          <path d="M17 15v4" />
+        </svg>
+      );
+    case "interference":
+      return (
+        <svg {...iconProps}>
+          <path d="M5 4h14v16H5z" />
+          <path d="M9 4v16" />
+          <path d="M13 4v16" />
+          <path d="M17 4v16" />
+          <path d="M5 8h14" />
+          <path d="M5 12h14" />
+          <path d="M5 16h14" />
+          <path d="M7 6l10 12" />
+          <path d="M17 6L7 18" />
+        </svg>
+      );
+    case "rotate":
+      return (
+        <svg {...iconProps}>
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 2v3" />
+          <path d="M12 19v3" />
+          <path d="M2 12h3" />
+          <path d="M19 12h3" />
+          <path d="M4.9 4.9 7 7" />
+          <path d="m17 17 2.1 2.1" />
+          <path d="m19.1 4.9-2.1 2.1" />
+          <path d="M7 17 4.9 19.1" />
+        </svg>
+      );
+    case "sharp":
+      return (
+        <svg {...iconProps}>
+          <path d="m4 18 5-1 9-9-4-4-9 9-1 5Z" />
+          <path d="m13 5 4 4" />
+          <path d="M3 21h18" />
+        </svg>
+      );
+    case "blur":
+      return (
+        <svg {...iconProps}>
+          <path d="M8 3h8l5 5v8l-5 5H8l-5-5V8l5-5Z" />
+          <path d="M8 3v5H3" />
+          <path d="M16 3v5h5" />
+          <path d="M21 16h-5v5" />
+          <path d="M3 16h5v5" />
+          <circle cx="12" cy="12" r="3" />
+        </svg>
+      );
+    case "eskiz":
+      return (
+        <svg {...iconProps}>
+          <path d="m5 19 4.5-1 9-9-3.5-3.5-9 9L5 19Z" />
+          <path d="m13.5 7 3.5 3.5" />
+          <path d="M4 21h16" />
+        </svg>
+      );
+    case "pixelization":
+      return (
+        <svg {...iconProps}>
+          <path d="M4 4h6v6H4z" />
+          <path d="M14 4h6v6h-6z" />
+          <path d="M4 14h6v6H4z" />
+          <path d="M14 14h6v6h-6z" />
+        </svg>
+      );
+    case "move":
+      return (
+        <svg {...iconProps}>
+          <path d="M12 2v20" />
+          <path d="M2 12h20" />
+          <path d="m12 2-3 3" />
+          <path d="m12 2 3 3" />
+          <path d="m12 22-3-3" />
+          <path d="m12 22 3-3" />
+          <path d="m2 12 3-3" />
+          <path d="m2 12 3 3" />
+          <path d="m22 12-3-3" />
+          <path d="m22 12-3 3" />
+        </svg>
+      );
+    case "metadata":
+      return (
+        <svg {...iconProps}>
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 11v5" />
+          <path d="M12 8h.01" />
+        </svg>
+      );
+    default:
+      return (
+        <svg {...iconProps}>
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 8v8" />
+          <path d="M8 12h8" />
+        </svg>
+      );
+  }
+}
+
+function createFallbackMethod(name: string, title: string): MethodDefinition {
+  return {
+    name,
+    title,
+    description: "",
+    legacy_name: name,
+    parameters: [],
+    has_settings: false,
+    reversible: false,
+  };
 }
 
 function createPipelineStep(method: MethodDefinition, stepNumber: number): PipelineStep {
