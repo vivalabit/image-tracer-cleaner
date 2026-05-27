@@ -586,18 +586,16 @@ function App() {
 
           <div className="step-list">
             {pipeline.length > 0 ? (
-              pipeline.map((step, index) => (
+              pipeline.map((step) => (
                 <article
                   key={step.id}
                   className={`step-card ${openSettingsStepId === step.id ? "selected" : ""}`}
                 >
-                  <div className="step-order">{index + 1}</div>
+                  <div className="step-effect-icon" aria-hidden="true">
+                    <OperationIcon name={step.name} />
+                  </div>
                   <div className="step-main">
-                    <div className="step-title-row">
-                      <strong>{step.title}</strong>
-                      <span className={`impact-badge ${step.impact}`}>{step.impact}</span>
-                    </div>
-                    <span>{step.category}</span>
+                    <strong className="step-effect-name">{step.title}</strong>
                   </div>
                   <div className="step-actions">
                     <button
