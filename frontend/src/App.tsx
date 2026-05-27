@@ -76,6 +76,8 @@ const fallbackMethods: MethodDefinition[] = [
 
 function App() {
   const [previewMode, setPreviewMode] = useState<PreviewMode>("compare");
+  const [lightboxMode, setLightboxMode] = useState<PreviewMode>("compare");
+  const [isLightboxOpen, setIsLightboxOpen] = useState(false);
   const [metadataTab, setMetadataTab] = useState<MetadataTab>("overview");
   const [pipeline, setPipeline] = useState<PipelineStep[]>([]);
   const [openSettingsStepId, setOpenSettingsStepId] = useState<string | null>(null);
@@ -195,6 +197,33 @@ function App() {
     [],
   );
 
+  useEffect(() => {
+    if (!outputUrl) {
+      setIsLightboxOpen(false);
+    }
+  }, [outputUrl]);
+
+  useEffect(() => {
+    if (!isLightboxOpen) {
+      return undefined;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsLightboxOpen(false);
+      }
+    };
+
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", closeOnEscape);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [isLightboxOpen]);
+
   const activeSteps = useMemo(() => pipeline.filter((step) => step.enabled), [pipeline]);
   const displayMethods = methods.length > 0 ? methods : fallbackMethods;
   const methodsByName = useMemo(() => new Map(displayMethods.map((method) => [method.name, method])), [displayMethods]);
@@ -309,6 +338,15 @@ function App() {
 
   function openImagePicker() {
     fileInputRef.current?.click();
+  }
+
+  function openOutputLightbox() {
+    if (!outputUrl) {
+      return;
+    }
+
+    setLightboxMode(previewMode);
+    setIsLightboxOpen(true);
   }
 
   function invalidateRenderedOutput() {
@@ -526,7 +564,7 @@ function App() {
 
           <div className={`preview-stage ${previewMode}`}>
             <ImageViewport title="Source" imageUrl={sourceUrl} variant="source" onPickImage={openImagePicker} />
-            <ImageViewport title="Output" imageUrl={outputUrl} variant="output" />
+            <ImageViewport title="Output" imageUrl={outputUrl} variant="output" onOpenImage={openOutputLightbox} />
             {previewMode === "slider" ? <div className="slider-handle" aria-hidden="true" /> : null}
           </div>
 
@@ -686,18 +724,43 @@ function App() {
           <pre className="recipe-preview">{requestPreview}</pre>
         </section>
       </section>
+
+      {isLightboxOpen && sourceUrl && outputUrl ? (
+        <ImageCompareDialog
+          mode={lightboxMode}
+          outputUrl={outputUrl}
+          sourceUrl={sourceUrl}
+          onClose={() => setIsLightboxOpen(false)}
+          onModeChange={setLightboxMode}
+        />
+      ) : null}
     </main>
   );
 }
 
-function ImageViewport(props: { title: string; imageUrl: string; variant: "source" | "output"; onPickImage?: () => void }) {
+function ImageViewport(props: {
+  title: string;
+  imageUrl: string;
+  variant: "source" | "output";
+  onOpenImage?: () => void;
+  onPickImage?: () => void;
+}) {
   const shouldShowPickerLabel = props.variant === "source" && !props.imageUrl;
-  const content = props.imageUrl ? <img src={props.imageUrl} alt={props.title} /> : <MockImage variant={props.variant} actionLabel={shouldShowPickerLabel ? "Choose image" : undefined} />;
+  const canOpenImage = Boolean(props.imageUrl && props.onOpenImage);
+  const content = props.imageUrl ? (
+    <img src={props.imageUrl} alt={props.title} />
+  ) : (
+    <MockImage variant={props.variant} actionLabel={shouldShowPickerLabel ? "Choose image" : undefined} />
+  );
 
   return (
     <figure className={`image-viewport ${props.variant}`}>
       <figcaption>{props.title}</figcaption>
-      {props.onPickImage ? (
+      {canOpenImage ? (
+        <button type="button" className="image-canvas image-zoom-trigger" onClick={props.onOpenImage} aria-label={`Open ${props.title} preview`}>
+          {content}
+        </button>
+      ) : props.onPickImage ? (
         <button type="button" className="image-canvas image-picker" onClick={props.onPickImage} aria-label="Choose source image">
           {content}
         </button>
@@ -705,6 +768,60 @@ function ImageViewport(props: { title: string; imageUrl: string; variant: "sourc
         <div className="image-canvas">{content}</div>
       )}
     </figure>
+  );
+}
+
+function ImageCompareDialog(props: {
+  mode: PreviewMode;
+  outputUrl: string;
+  sourceUrl: string;
+  onClose: () => void;
+  onModeChange: (mode: PreviewMode) => void;
+}) {
+  return (
+    <div className="image-lightbox" role="presentation" onClick={props.onClose}>
+      <section className="image-lightbox-dialog" role="dialog" aria-label="Large image comparison" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+        <div className="image-lightbox-header">
+          <div>
+            <span className="eyebrow">Preview</span>
+            <h2>Image comparison</h2>
+          </div>
+          <div className="image-lightbox-actions">
+            <div className="view-tabs lightbox-tabs" aria-label="Large preview view">
+              {(["compare", "slider", "difference"] as const).map((view) => (
+                <button
+                  key={view}
+                  type="button"
+                  className={props.mode === view ? "active" : ""}
+                  onClick={() => props.onModeChange(view)}
+                >
+                  {formatPreviewMode(view)}
+                </button>
+              ))}
+            </div>
+            <button type="button" className="icon-button image-lightbox-close" aria-label="Close preview" onClick={props.onClose}>
+              x
+            </button>
+          </div>
+        </div>
+
+        <div className={`lightbox-stage ${props.mode}`}>
+          <figure className="lightbox-frame source">
+            <figcaption>Source</figcaption>
+            <div className="lightbox-canvas">
+              <img src={props.sourceUrl} alt="Source large preview" />
+            </div>
+          </figure>
+          <figure className="lightbox-frame output">
+            <figcaption>{props.mode === "difference" ? "Difference" : "Output"}</figcaption>
+            <div className="lightbox-canvas">
+              <img src={props.outputUrl} alt="Output large preview" />
+            </div>
+          </figure>
+          {props.mode === "slider" ? <div className="lightbox-slider-handle" aria-hidden="true" /> : null}
+        </div>
+      </section>
+    </div>
   );
 }
 
