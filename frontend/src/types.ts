@@ -31,6 +31,13 @@ export type Operation = {
   params: Record<string, unknown>;
 };
 
+export type MetadataEditPayload = {
+  strip_gps?: boolean;
+  strip_all?: boolean;
+  creator?: string;
+  software?: string;
+};
+
 export type RecipeStep = Operation & {
   enabled: boolean;
 };
@@ -40,6 +47,7 @@ export type RandomizeRequest = {
   seed: number | null;
   output_format: OutputFormat;
   operations: Operation[];
+  metadata?: MetadataEditPayload | null;
 };
 
 export type DimensionsDelta = {

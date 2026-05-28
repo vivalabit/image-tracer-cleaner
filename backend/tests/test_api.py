@@ -174,6 +174,35 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(result.size, (3, 2))
         self.assertEqual(result.getpixel((2, 0)), (255, 0, 0))
 
+    def test_randomize_accepts_metadata_payload_outside_operations(self) -> None:
+        image = Image.new("RGB", (3, 2), "black")
+        image.putpixel((0, 0), (255, 0, 0))
+
+        response = self.client.post(
+            "/api/randomize",
+            files={"file": ("input.png", _save_png_with_metadata(image), "image/png")},
+            data={
+                "operations": json.dumps([{"name": "hmirror", "params": {}}]),
+                "metadata": json.dumps({"strip_all": True}),
+                "seed": "42",
+                "output_format": "PNG",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        result = Image.open(BytesIO(response.content))
+        self.assertEqual(result.getpixel((2, 0)), (255, 0, 0))
+
+        metadata_response = self.client.post(
+            "/api/metadata/read",
+            files={"file": ("output.png", response.content, "image/png")},
+        )
+        metadata = metadata_response.json()
+        self.assertEqual(metadata["exif"], {})
+        self.assertEqual(metadata["xmp"], {})
+        self.assertIsNone(metadata["color_profile"])
+
     def test_randomize_skips_disabled_recipe_steps(self) -> None:
         image = Image.new("RGB", (3, 2), "black")
         image.putpixel((0, 0), (255, 0, 0))
@@ -314,6 +343,18 @@ class ApiTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["detail"], "recipe must be a JSON object")
+
+    def test_randomize_requires_metadata_object(self) -> None:
+        image = Image.new("RGB", (3, 2), "black")
+
+        response = self.client.post(
+            "/api/randomize",
+            files={"file": ("input.png", _save_png(image), "image/png")},
+            data={"metadata": json.dumps([{"strip_all": True}])},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "metadata must be a JSON object")
 
 
 def _save_png(image: Image.Image) -> bytes:

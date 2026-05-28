@@ -5,6 +5,7 @@
   --border: #1b2a3a;
   --accent: #2ea8ff;
   --accent-secondary: #7c5cff;
+  --page-max-width: 1440px;
   --text: #f6fbff;
   --muted: #8e9aaa;
   color: var(--text);
@@ -42,7 +43,9 @@ button:disabled {
 
 .app-shell {
   min-height: 100vh;
-  padding: 5px 28px 0;
+  max-width: var(--page-max-width);
+  margin-inline: auto;
+  padding: 12px 24px 24px;
 }
 
 .topbar,
@@ -146,6 +149,7 @@ button:disabled {
 
 .primary-button,
 .ghost-button,
+.danger-button,
 .add-step-grid button {
   display: inline-flex;
   align-items: center;
@@ -177,8 +181,17 @@ button:disabled {
   color: #f3f7fb;
 }
 
+.danger-button {
+  border: 1px solid #70404d;
+  background:
+    linear-gradient(180deg, rgb(255 112 112 / 16%), rgb(255 112 112 / 5%)),
+    var(--card-bg);
+  color: #ffd5d5;
+}
+
 .primary-button:disabled,
 .ghost-button:disabled,
+.danger-button:disabled,
 .add-step-grid button:disabled {
   border-color: var(--border);
   background: var(--panel-bg);
@@ -201,7 +214,7 @@ button:disabled {
 
 .workspace {
   display: grid;
-  grid-template-columns: clamp(320px, 24vw, 380px) minmax(620px, 1fr) clamp(220px, 18vw, 300px);
+  grid-template-columns: 320px minmax(0, 1fr) 280px;
   gap: 20px;
   align-items: stretch;
 }
@@ -332,7 +345,7 @@ button:disabled {
 .file-drop strong {
   overflow: hidden;
   color: #ffffff;
-  font-size: clamp(14px, 1.1vw, 17px);
+  font-size: 16px;
   font-weight: 800;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -571,9 +584,9 @@ button:disabled {
   display: grid;
   place-items: center;
   width: 100%;
-  height: clamp(504px, calc(46vh + 84px), 539px);
+  height: 520px;
   border: 0;
-  padding: 42px;
+  padding: 36px;
   background: var(--app-bg);
   color: inherit;
   overflow: hidden;
@@ -772,7 +785,7 @@ button:disabled {
 .image-lightbox-dialog {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  width: min(1500px, 96vw);
+  width: min(var(--page-max-width), calc(100vw - 48px));
   max-height: calc(100dvh - 48px);
   overflow: hidden;
   border: 1px solid var(--border);
@@ -823,7 +836,8 @@ button:disabled {
   position: relative;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  min-height: min(78vh, 860px);
+  height: min(760px, calc(100dvh - 144px));
+  min-height: 420px;
   overflow: hidden;
   background: var(--border);
   gap: 1px;
@@ -1228,7 +1242,7 @@ button:disabled {
   overflow: hidden;
   padding-inline: 18px;
   text-align: left;
-  font-size: clamp(13px, 1.05vw, 16px);
+  font-size: 14px;
   line-height: 1.1;
 }
 
@@ -1239,7 +1253,7 @@ button:disabled {
 .available-effects button {
   min-height: 48px;
   padding-inline: 13px;
-  font-size: clamp(12px, 0.88vw, 14px);
+  font-size: 13px;
 }
 
 .available-effects .method-icon {
@@ -1290,7 +1304,7 @@ button:disabled {
 
 .detail-grid {
   display: grid;
-  grid-template-columns: minmax(420px, 0.44fr) minmax(620px, 0.56fr);
+  grid-template-columns: 1fr;
   gap: 22px;
   margin-top: 24px;
   align-items: start;
@@ -1343,6 +1357,129 @@ button:disabled {
   font-size: 15px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.metadata-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.metadata-editor-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+  min-height: 390px;
+}
+
+.metadata-browser {
+  min-width: 0;
+}
+
+.metadata-edit-controls {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  border-left: 1px solid var(--border);
+  padding: 18px;
+  background: rgb(5 7 11 / 34%);
+}
+
+.metadata-tool-heading {
+  display: grid;
+  gap: 5px;
+  padding-bottom: 4px;
+}
+
+.metadata-tool-heading strong {
+  color: #ffffff;
+  font-size: 16px;
+  line-height: 1.25;
+}
+
+.metadata-switch,
+.metadata-field-editor {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 13px;
+  background: var(--card-bg);
+}
+
+.metadata-switch {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 11px;
+  align-items: start;
+}
+
+.metadata-switch input {
+  width: 18px;
+  min-height: 18px;
+  margin-top: 2px;
+  accent-color: var(--accent);
+}
+
+.metadata-switch.destructive input {
+  accent-color: #ff8c8c;
+}
+
+.metadata-switch span,
+.metadata-field-heading {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.metadata-switch strong,
+.metadata-field-heading strong {
+  color: #ffffff;
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.metadata-switch small,
+.metadata-field-heading small {
+  color: #97a5b7;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.metadata-field-editor {
+  display: grid;
+  gap: 10px;
+}
+
+.metadata-action-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.metadata-action-tabs button {
+  min-height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-bg);
+  color: #b7c2d0;
+  font-size: 12px;
+  font-weight: 820;
+}
+
+.metadata-action-tabs button.active {
+  border-color: var(--accent);
+  background: rgb(46 168 255 / 12%);
+  color: var(--accent);
+}
+
+.metadata-field-editor input {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 9px 10px;
+  background: var(--app-bg);
+  color: var(--text);
 }
 
 .param-grid {
@@ -1547,6 +1684,10 @@ button:disabled {
   padding: 12px 20px;
 }
 
+.metadata-row-head {
+  background: var(--panel-bg);
+}
+
 .metadata-row strong,
 .endpoint-row span {
   min-width: 0;
@@ -1576,6 +1717,13 @@ button:disabled {
   font-size: 10px;
   font-weight: 850;
   text-transform: uppercase;
+}
+
+.metadata-row-head mark {
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--muted);
 }
 
 .metadata-row mark.kept {
@@ -1629,7 +1777,7 @@ button:disabled {
 
 @media (max-width: 1180px) {
   .workspace {
-    grid-template-columns: minmax(280px, 320px) minmax(520px, 1fr);
+    grid-template-columns: 300px minmax(0, 1fr);
   }
 
   .pipeline-panel {
@@ -1643,7 +1791,16 @@ button:disabled {
   }
 
   .detail-grid {
-    grid-template-columns: minmax(320px, 440px) minmax(420px, 1fr);
+    grid-template-columns: 1fr;
+  }
+
+  .metadata-editor-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .metadata-edit-controls {
+    border-top: 1px solid var(--border);
+    border-left: 0;
   }
 
   .api-panel {
@@ -1750,6 +1907,15 @@ button:disabled {
   .endpoint-row,
   .param-row {
     grid-template-columns: 1fr;
+  }
+
+  .metadata-header-actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .metadata-header-actions button {
+    flex: 1 1 auto;
   }
 
   .metadata-row mark,

@@ -9,7 +9,7 @@ The canonical API is upload-based:
 - `POST /api/metadata/read` accepts an uploaded image and returns read-only metadata.
 - `POST /api/analyze` accepts original and output images and returns result analysis metrics.
 - `POST /api/randomize` accepts multipart form data with `file` plus either a JSON `recipe` field or
-  the current UI payload: `operations`, optional `seed`, and `output_format`.
+  the current UI payload: `operations`, optional `metadata`, optional `seed`, and `output_format`.
 
 Legacy PHP filesystem semantics are not exposed as HTTP endpoints in the Python backend. In particular,
 `?req=randomizeImage&path=...` and server-side reads from an `images/` directory are intentionally not
@@ -65,21 +65,16 @@ the request seed before the operation runs:
 ]
 ```
 
-Metadata edits are regular pipeline steps. The `metadata` operation can strip GPS metadata, strip all
-metadata, remove or set the creator field, and set output software metadata:
+Metadata edits are sent outside the recipe as the optional multipart `metadata` JSON form field. The
+backend applies it after visual operations, so recipe ordering stays about pixels only:
 
 ```json
-[
-  {
-    "name": "metadata",
-    "params": {
-      "strip_gps": true,
-      "strip_all": false,
-      "creator": "",
-      "software": "Image Randomizer"
-    }
-  }
-]
+{
+  "strip_gps": true,
+  "strip_all": false,
+  "creator": "",
+  "software": "Image Randomizer"
+}
 ```
 
 The metadata read endpoint returns:

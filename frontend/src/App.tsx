@@ -5,6 +5,7 @@ import { analyzeImages, fetchMethods, randomizeImage, readImageMetadata } from "
 import type {
   ImageAnalysis,
   ImageMetadata,
+  MetadataEditPayload,
   MethodDefinition,
   MethodParameter,
   NumericRange,
@@ -17,6 +18,7 @@ import type {
 type PreviewMode = "compare" | "slider" | "difference";
 type MetadataTab = "overview" | "exif" | "iptc" | "xmp" | "output";
 type ParamMode = "manual" | "random";
+type MetadataFieldAction = "keep" | "set" | "remove";
 
 type PipelineParam = {
   id: string;
@@ -49,11 +51,30 @@ type MetadataRow = {
   status: "kept" | "edited" | "removed";
 };
 
+type MetadataEditState = {
+  stripGps: boolean;
+  stripAll: boolean;
+  creatorAction: MetadataFieldAction;
+  creatorValue: string;
+  softwareAction: MetadataFieldAction;
+  softwareValue: string;
+};
+
 const endpointRows = [
   { method: "GET", path: "/api/methods", note: "operation registry" },
-  { method: "POST", path: "/api/randomize", note: "multipart operations" },
+  { method: "POST", path: "/api/metadata/read", note: "metadata viewer" },
+  { method: "POST", path: "/api/randomize", note: "operations + metadata" },
   { method: "POST", path: "/api/analyze", note: "result analysis" },
 ];
+
+const defaultMetadataEdit: MetadataEditState = {
+  stripGps: false,
+  stripAll: false,
+  creatorAction: "keep",
+  creatorValue: "",
+  softwareAction: "keep",
+  softwareValue: "Image Randomizer",
+};
 
 const fallbackMethods: MethodDefinition[] = [
   createFallbackMethod("hmirror", "Horizontal mirror"),
@@ -71,7 +92,6 @@ const fallbackMethods: MethodDefinition[] = [
   createFallbackMethod("eskiz", "Sketch"),
   createFallbackMethod("pixelization", "Pixelization"),
   createFallbackMethod("move", "Move"),
-  createFallbackMethod("metadata", "Metadata"),
 ];
 
 function App() {
@@ -95,6 +115,7 @@ function App() {
   const [metadata, setMetadata] = useState<ImageMetadata | null>(null);
   const [metadataError, setMetadataError] = useState("");
   const [isReadingMetadata, setIsReadingMetadata] = useState(false);
+  const [metadataEdit, setMetadataEdit] = useState<MetadataEditState>(defaultMetadataEdit);
   const [seed, setSeed] = useState("42");
   const [outputFormat, setOutputFormat] = useState<OutputFormat>("PNG");
   const [isRendering, setIsRendering] = useState(false);
@@ -229,9 +250,11 @@ function App() {
   const activeSteps = useMemo(() => pipeline.filter((step) => step.enabled), [pipeline]);
   const displayMethods = methods.length > 0 ? methods : fallbackMethods;
   const methodsByName = useMemo(() => new Map(displayMethods.map((method) => [method.name, method])), [displayMethods]);
+  const recipeMethods = useMemo(() => displayMethods.filter((method) => method.name !== "metadata"), [displayMethods]);
+  const activeMetadataPayload = useMemo(() => buildMetadataEditPayload(metadataEdit), [metadataEdit]);
   const visibleMetadataRows = useMemo(
-    () => buildMetadataRows(metadata, metadataTab, metadataError, isReadingMetadata),
-    [isReadingMetadata, metadata, metadataError, metadataTab],
+    () => buildMetadataRows(metadata, metadataTab, metadataError, isReadingMetadata, metadataEdit),
+    [isReadingMetadata, metadata, metadataEdit, metadataError, metadataTab],
   );
   const requestPreview = useMemo(
     () =>
@@ -239,13 +262,14 @@ function App() {
         {
           file: file ? file.name : null,
           operations: activeSteps.map(toOperation),
+          metadata: activeMetadataPayload,
           seed: parseSeedOrNull(seed),
           output_format: outputFormat,
         },
         null,
         2,
       ),
-    [activeSteps, file, outputFormat, seed],
+    [activeMetadataPayload, activeSteps, file, outputFormat, seed],
   );
   const renderPreview = useCallback(async (): Promise<Blob | null> => {
     const requestId = previewRequestId.current + 1;
@@ -273,6 +297,7 @@ function App() {
       const request: RandomizeRequest = {
         file,
         operations: activeSteps.map(toOperation),
+        metadata: activeMetadataPayload,
         seed: parseSeed(seed),
         output_format: outputFormat,
       };
@@ -316,7 +341,7 @@ function App() {
         }
       }
     }
-  }, [activeSteps, file, outputFormat, seed]);
+  }, [activeMetadataPayload, activeSteps, file, outputFormat, seed]);
 
   useEffect(() => {
     if (!file) {
@@ -446,6 +471,30 @@ function App() {
     invalidateRenderedOutput();
   }
 
+  function updateMetadataEdit(patch: Partial<MetadataEditState>) {
+    setMetadataEdit((current) => ({ ...current, ...patch }));
+    invalidateRenderedOutput();
+  }
+
+  function toggleRemoveAllMetadata(checked: boolean) {
+    setMetadataEdit((current) =>
+      checked
+        ? { ...defaultMetadataEdit, stripAll: true, softwareValue: "" }
+        : { ...current, stripAll: false },
+    );
+    invalidateRenderedOutput();
+  }
+
+  function removeAllMetadata() {
+    setMetadataEdit({ ...defaultMetadataEdit, stripAll: true, softwareValue: "" });
+    invalidateRenderedOutput();
+  }
+
+  function resetMetadataEdit() {
+    setMetadataEdit(defaultMetadataEdit);
+    invalidateRenderedOutput();
+  }
+
   async function handleExport() {
     if (!file) {
       setRenderError("Choose an image first.");
@@ -496,10 +545,10 @@ function App() {
           <div className="control-section recipe-picker">
             <div className="control-title">
               <span className="eyebrow">Recipe</span>
-              <strong>{displayMethods.length} effects</strong>
+              <strong>{recipeMethods.length} effects</strong>
             </div>
             <div className="add-step-grid available-effects">
-              {displayMethods.map((method) => (
+              {recipeMethods.map((method) => (
                 <button key={method.name} type="button" onClick={() => addStep(method.name)}>
                   <span className="method-icon" aria-hidden="true">
                     <OperationIcon name={method.name} />
@@ -670,7 +719,20 @@ function App() {
           <div className="panel-header compact">
             <div>
               <span className="eyebrow">Metadata</span>
-              <h2>{metadata ? "Read-only scan" : "No file"}</h2>
+              <h2>{metadata ? "View, edit, remove" : "No file"}</h2>
+            </div>
+            <div className="metadata-header-actions">
+              <button type="button" className="ghost-button small-button" onClick={resetMetadataEdit}>
+                Reset
+              </button>
+              <button
+                type="button"
+                className="danger-button small-button"
+                disabled={!file}
+                onClick={removeAllMetadata}
+              >
+                Remove all metadata
+              </button>
             </div>
           </div>
 
@@ -696,28 +758,90 @@ function App() {
             </div>
           </div>
 
-          <div className="metadata-tabs">
-            {(["overview", "exif", "iptc", "xmp", "output"] as const).map((tab) => (
-              <button
-                key={tab}
-                type="button"
-                className={metadataTab === tab ? "active" : ""}
-                onClick={() => setMetadataTab(tab)}
-              >
-                {tab.toUpperCase()}
-              </button>
-            ))}
-          </div>
-
-          <div className="metadata-table">
-            {visibleMetadataRows.map((row) => (
-              <div className="metadata-row" key={`${metadataTab}-${row.label}`}>
-                <strong>{row.label}</strong>
-                <span>{row.source}</span>
-                <span>{row.output}</span>
-                <mark className={row.status}>{row.status}</mark>
+          <div className="metadata-editor-layout">
+            <div className="metadata-browser">
+              <div className="metadata-tabs">
+                {(["overview", "exif", "iptc", "xmp", "output"] as const).map((tab) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    className={metadataTab === tab ? "active" : ""}
+                    onClick={() => setMetadataTab(tab)}
+                  >
+                    {tab.toUpperCase()}
+                  </button>
+                ))}
               </div>
-            ))}
+
+              <div className="metadata-table">
+                <div className="metadata-row metadata-row-head">
+                  <strong>Field</strong>
+                  <span>Source</span>
+                  <span>Output</span>
+                  <mark>Status</mark>
+                </div>
+                {visibleMetadataRows.map((row) => (
+                  <div className="metadata-row" key={`${metadataTab}-${row.label}`}>
+                    <strong>{row.label}</strong>
+                    <span>{row.source}</span>
+                    <span>{row.output}</span>
+                    <mark className={row.status}>{row.status}</mark>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <aside className="metadata-edit-controls" aria-label="Metadata actions">
+              <div className="metadata-tool-heading">
+                <span className="eyebrow">Edit Metadata</span>
+                <strong>{formatMetadataEditSummary(metadataEdit)}</strong>
+              </div>
+
+              <label className="metadata-switch">
+                <input
+                  type="checkbox"
+                  checked={metadataEdit.stripGps}
+                  disabled={metadataEdit.stripAll}
+                  onChange={(event) => updateMetadataEdit({ stripGps: event.target.checked })}
+                />
+                <span>
+                  <strong>Strip GPS</strong>
+                  <small>Remove location data from EXIF/XMP.</small>
+                </span>
+              </label>
+
+              <label className="metadata-switch destructive">
+                <input
+                  type="checkbox"
+                  checked={metadataEdit.stripAll}
+                  onChange={(event) => toggleRemoveAllMetadata(event.target.checked)}
+                />
+                <span>
+                  <strong>Remove all metadata</strong>
+                  <small>Export the photo with metadata, EXIF, XMP, and color profile cleared.</small>
+                </span>
+              </label>
+
+              <MetadataFieldEditor
+                label="Creator"
+                action={metadataEdit.creatorAction}
+                value={metadataEdit.creatorValue}
+                currentValue={getMetadataCurrentValue(metadata, "creator")}
+                disabled={metadataEdit.stripAll}
+                onActionChange={(creatorAction) => updateMetadataEdit({ creatorAction })}
+                onValueChange={(creatorValue) => updateMetadataEdit({ creatorValue })}
+              />
+
+              <MetadataFieldEditor
+                label="Software"
+                action={metadataEdit.softwareAction}
+                value={metadataEdit.softwareValue}
+                currentValue={getMetadataCurrentValue(metadata, "software")}
+                disabled={metadataEdit.stripAll}
+                onActionChange={(softwareAction) => updateMetadataEdit({ softwareAction })}
+                onValueChange={(softwareValue) => updateMetadataEdit({ softwareValue })}
+              />
+            </aside>
           </div>
         </section>
 
@@ -1038,6 +1162,46 @@ function StepSettingsMenu(props: {
           <div className="empty-row">No settings</div>
         )}
       </div>
+    </div>
+  );
+}
+
+function MetadataFieldEditor(props: {
+  label: string;
+  action: MetadataFieldAction;
+  value: string;
+  currentValue: string;
+  disabled: boolean;
+  onActionChange: (action: MetadataFieldAction) => void;
+  onValueChange: (value: string) => void;
+}) {
+  return (
+    <div className="metadata-field-editor">
+      <div className="metadata-field-heading">
+        <strong>{props.label}</strong>
+        <small>Current: {props.currentValue || "not present"}</small>
+      </div>
+      <div className="metadata-action-tabs" aria-label={`${props.label} metadata action`}>
+        {(["keep", "set", "remove"] as const).map((action) => (
+          <button
+            key={action}
+            type="button"
+            className={props.action === action ? "active" : ""}
+            disabled={props.disabled}
+            onClick={() => props.onActionChange(action)}
+          >
+            {formatMetadataAction(action)}
+          </button>
+        ))}
+      </div>
+      {props.action === "set" ? (
+        <input
+          value={props.value}
+          disabled={props.disabled}
+          placeholder={props.currentValue || props.label}
+          onChange={(event) => props.onValueChange(event.target.value)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -1587,11 +1751,81 @@ function createPipelineStep(method: MethodDefinition, stepNumber: number): Pipel
   };
 }
 
+function buildMetadataEditPayload(edit: MetadataEditState): MetadataEditPayload | null {
+  if (edit.stripAll) {
+    return { strip_all: true };
+  }
+
+  const payload: MetadataEditPayload = {
+    strip_all: false,
+    strip_gps: edit.stripGps,
+  };
+
+  if (edit.creatorAction === "set") {
+    payload.creator = edit.creatorValue;
+  } else if (edit.creatorAction === "remove") {
+    payload.creator = "";
+  }
+
+  if (edit.softwareAction === "set") {
+    payload.software = edit.softwareValue;
+  } else if (edit.softwareAction === "remove") {
+    payload.software = "";
+  }
+
+  return hasMetadataEdits(payload) ? payload : null;
+}
+
+function hasMetadataEdits(payload: MetadataEditPayload): boolean {
+  return Boolean(payload.strip_all || payload.strip_gps || "creator" in payload || "software" in payload);
+}
+
+function formatMetadataEditSummary(edit: MetadataEditState): string {
+  if (edit.stripAll) {
+    return "All metadata will be removed";
+  }
+
+  const actions = [
+    edit.stripGps ? "GPS removal" : "",
+    edit.creatorAction !== "keep" ? `Creator ${edit.creatorAction}` : "",
+    edit.softwareAction !== "keep" ? `Software ${edit.softwareAction}` : "",
+  ].filter(Boolean);
+
+  return actions.length > 0 ? actions.join(" / ") : "No metadata edits";
+}
+
+function formatMetadataAction(action: MetadataFieldAction): string {
+  if (action === "set") {
+    return "Set";
+  }
+  if (action === "remove") {
+    return "Remove";
+  }
+  return "Keep";
+}
+
+function getMetadataCurrentValue(metadata: ImageMetadata | null, field: "creator" | "software"): string {
+  if (!metadata) {
+    return "";
+  }
+
+  const keys = field === "creator" ? ["Artist", "Creator", "Author"] : ["Software"];
+  for (const key of keys) {
+    const value = metadata.exif[key];
+    if (value !== undefined && value !== null) {
+      return formatMetadataValue(value);
+    }
+  }
+
+  return "";
+}
+
 function buildMetadataRows(
   metadata: ImageMetadata | null,
   tab: MetadataTab,
   error: string,
   isLoading: boolean,
+  edit: MetadataEditState,
 ): MetadataRow[] {
   if (isLoading) {
     return [{ label: "Status", source: "Reading", output: "", status: "kept" }];
@@ -1617,10 +1851,15 @@ function buildMetadataRows(
       {
         label: "GPS",
         source: metadata.gps_presence ? "Present" : "Not present",
-        output: "",
-        status: metadata.gps_presence ? "edited" : "kept",
+        output: getGpsOutput(edit, metadata.gps_presence),
+        status: getGpsStatus(edit, metadata.gps_presence),
       },
-      { label: "File hash", source: metadata.file_hash, output: "", status: "kept" },
+      {
+        label: "File hash",
+        source: metadata.file_hash,
+        output: buildMetadataEditPayload(edit) ? "Recomputed on export" : "",
+        status: buildMetadataEditPayload(edit) ? "edited" : "kept",
+      },
     ];
   }
 
@@ -1629,30 +1868,120 @@ function buildMetadataRows(
       {
         label: "Color profile",
         source: metadata.color_profile ? `${metadata.color_profile.bytes} bytes` : "Not present",
-        output: "",
-        status: metadata.color_profile ? "kept" : "removed",
+        output: edit.stripAll && metadata.color_profile ? "Removed" : "",
+        status: edit.stripAll && metadata.color_profile ? "removed" : metadata.color_profile ? "kept" : "removed",
       },
       {
         label: "Color profile hash",
         source: metadata.color_profile?.sha256 ?? "",
-        output: "",
-        status: metadata.color_profile ? "kept" : "removed",
+        output: edit.stripAll && metadata.color_profile ? "Removed" : "",
+        status: edit.stripAll && metadata.color_profile ? "removed" : metadata.color_profile ? "kept" : "removed",
       },
     ];
   }
 
   const section = metadata[tab] as Record<string, unknown>;
   const entries = Object.entries(section);
-  if (entries.length === 0) {
+  const plannedRows = buildPlannedMetadataRows(tab, edit, entries.map(([label]) => label));
+  if (entries.length === 0 && plannedRows.length === 0) {
     return [{ label: tab.toUpperCase(), source: "Empty", output: "", status: "kept" }];
   }
 
-  return entries.map(([label, value]) => ({
-    label,
-    source: formatMetadataValue(value),
-    output: "",
-    status: "kept",
-  }));
+  const metadataRows = entries.map(([label, value]) => {
+    const plan = getMetadataRowPlan(tab, label, value, edit);
+    return {
+      label,
+      source: formatMetadataValue(value),
+      output: plan.output,
+      status: plan.status,
+    };
+  });
+
+  return [...metadataRows, ...plannedRows];
+}
+
+function getGpsOutput(edit: MetadataEditState, gpsPresent: boolean): string {
+  if (!gpsPresent) {
+    return "";
+  }
+  if (edit.stripAll) {
+    return "Removed with all metadata";
+  }
+  return edit.stripGps ? "Removed" : "";
+}
+
+function getGpsStatus(edit: MetadataEditState, gpsPresent: boolean): MetadataRow["status"] {
+  if (!gpsPresent) {
+    return "kept";
+  }
+  return edit.stripAll || edit.stripGps ? "removed" : "kept";
+}
+
+function getMetadataRowPlan(
+  tab: MetadataTab,
+  label: string,
+  value: unknown,
+  edit: MetadataEditState,
+): Pick<MetadataRow, "output" | "status"> {
+  if (edit.stripAll) {
+    return { output: "Removed", status: "removed" };
+  }
+
+  if (tab === "exif" && isCreatorMetadataLabel(label)) {
+    return getFieldActionPlan(edit.creatorAction, edit.creatorValue);
+  }
+
+  if (tab === "exif" && isSoftwareMetadataLabel(label)) {
+    return getFieldActionPlan(edit.softwareAction, edit.softwareValue);
+  }
+
+  if (tab === "xmp" && edit.stripGps && String(value).includes("GPS")) {
+    return { output: "GPS data removed", status: "removed" };
+  }
+
+  return { output: "", status: "kept" };
+}
+
+function getFieldActionPlan(action: MetadataFieldAction, value: string): Pick<MetadataRow, "output" | "status"> {
+  if (action === "remove") {
+    return { output: "Removed", status: "removed" };
+  }
+  if (action === "set") {
+    return { output: value || "Empty value removes field", status: value ? "edited" : "removed" };
+  }
+  return { output: "", status: "kept" };
+}
+
+function isCreatorMetadataLabel(label: string): boolean {
+  const normalized = label.toLowerCase();
+  return normalized === "artist" || normalized === "creator" || normalized === "author";
+}
+
+function isSoftwareMetadataLabel(label: string): boolean {
+  return label.toLowerCase() === "software";
+}
+
+function buildPlannedMetadataRows(
+  tab: MetadataTab,
+  edit: MetadataEditState,
+  existingLabels: string[],
+): MetadataRow[] {
+  if (tab !== "exif" || edit.stripAll) {
+    return [];
+  }
+
+  const rows: MetadataRow[] = [];
+  if (edit.creatorAction !== "keep" && !existingLabels.some(isCreatorMetadataLabel)) {
+    const plan = getFieldActionPlan(edit.creatorAction, edit.creatorValue);
+    rows.push({ label: "Artist", source: "Not present", output: plan.output, status: plan.status });
+  }
+
+  if (edit.softwareAction !== "keep" && !existingLabels.some(isSoftwareMetadataLabel)) {
+    const plan = getFieldActionPlan(edit.softwareAction, edit.softwareValue);
+    rows.push({ label: "Software", source: "Not present", output: plan.output, status: plan.status });
+  }
+
+  return rows;
 }
 
 function formatMetadataValue(value: unknown): string {

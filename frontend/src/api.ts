@@ -21,6 +21,10 @@ export async function randomizeImage(input: RandomizeRequest, signal?: AbortSign
   formData.append("operations", JSON.stringify(input.operations));
   formData.append("output_format", input.output_format);
 
+  if (input.metadata) {
+    formData.append("metadata", JSON.stringify(input.metadata));
+  }
+
   if (input.seed !== null) {
     formData.append("seed", String(input.seed));
   }

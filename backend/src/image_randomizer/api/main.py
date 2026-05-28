@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import random
 from dataclasses import asdict
+from typing import Any
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
@@ -9,6 +11,7 @@ from fastapi.responses import Response
 from image_randomizer.core.analysis import analyze_images
 from image_randomizer.core.metadata import read_image_metadata
 from image_randomizer.core.models import Recipe
+from image_randomizer.core.operations import apply_operation
 from image_randomizer.core.pipeline import apply_pipeline, load_image_bytes, parse_recipe_step, save_image_bytes
 from image_randomizer.core.recipe import parse_recipe_payload
 from image_randomizer.core.registry import get_method_definitions
@@ -53,9 +56,12 @@ async def randomize(
     file: UploadFile = File(...),
     recipe: str | None = Form(None),
     operations: str = Form("[]"),
+    metadata: str | None = Form(None),
     seed: int | None = Form(None),
     output_format: str = Form("PNG"),
 ) -> Response:
+    metadata_params = parse_metadata_form(metadata)
+
     if recipe is not None:
         try:
             recipe_payload = json.loads(recipe)
@@ -88,9 +94,31 @@ async def randomize(
     try:
         image = load_image_bytes(data)
         result = apply_pipeline(image, parsed_recipe.steps, seed=parsed_recipe.seed)
+        if metadata_params:
+            result = apply_operation(
+                result,
+                "metadata",
+                random.Random(parsed_recipe.seed),
+                metadata_params,
+            )
         payload = save_image_bytes(result, parsed_recipe.output_format)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     media_type = f"image/{parsed_recipe.output_format.lower()}"
     return Response(content=payload, media_type=media_type)
+
+
+def parse_metadata_form(metadata: str | None) -> dict[str, Any]:
+    if metadata is None:
+        return {}
+
+    try:
+        payload = json.loads(metadata)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="metadata must be valid JSON") from exc
+
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="metadata must be a JSON object")
+
+    return payload
