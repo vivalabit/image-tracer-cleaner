@@ -64,6 +64,14 @@ type MetadataRow = {
   source: string;
   output: string;
   status: "kept" | "edited" | "removed";
+  editTarget?: MetadataEditTarget;
+};
+
+type MetadataEditTarget = {
+  group: string;
+  tag: string;
+  value: unknown;
+  writable: boolean;
 };
 
 type MetadataEditState = {
@@ -286,6 +294,7 @@ function App() {
   const [metadataError, setMetadataError] = useState("");
   const [isReadingMetadata, setIsReadingMetadata] = useState(false);
   const [metadataEdit, setMetadataEdit] = useState<MetadataEditState>(defaultMetadataEdit);
+  const [editingMetadataTargetKey, setEditingMetadataTargetKey] = useState<string | null>(null);
   const [seed, setSeed] = useState("42");
   const [outputFormat, setOutputFormat] = useState<OutputFormat>("PNG");
   const [isRendering, setIsRendering] = useState(false);
@@ -679,6 +688,82 @@ function App() {
     invalidateRenderedOutput();
   }
 
+  function startMetadataRowEdit(target: MetadataEditTarget) {
+    if (!target.writable) {
+      return;
+    }
+
+    setMetadataEdit((current) => {
+      const group = target.group.trim();
+      const tag = target.tag.trim();
+      const value = formatMetadataValue(target.value);
+      const existingIndex = current.advancedEdits.findIndex((edit) => doesAdvancedEditMatchTarget(edit, target));
+
+      if (existingIndex >= 0) {
+        return {
+          ...current,
+          advancedEdits: current.advancedEdits.map((edit, index) =>
+            index === existingIndex ? { ...edit, action: "set", group, tag, value } : edit,
+          ),
+        };
+      }
+
+      nextAdvancedEditId.current += 1;
+      return {
+        ...current,
+        advancedEdits: [
+          ...current.advancedEdits,
+          {
+            id: `advanced-${nextAdvancedEditId.current}`,
+            action: "set",
+            group,
+            tag,
+            value,
+          },
+        ],
+      };
+    });
+    setEditingMetadataTargetKey(getMetadataEditTargetKey(target));
+    invalidateRenderedOutput();
+  }
+
+  function updateMetadataRowEditValue(target: MetadataEditTarget, value: string) {
+    if (!target.writable) {
+      return;
+    }
+
+    setMetadataEdit((current) => {
+      const group = target.group.trim();
+      const tag = target.tag.trim();
+      const existingIndex = current.advancedEdits.findIndex((edit) => doesAdvancedEditMatchTarget(edit, target));
+
+      if (existingIndex >= 0) {
+        return {
+          ...current,
+          advancedEdits: current.advancedEdits.map((edit, index) =>
+            index === existingIndex ? { ...edit, action: "set", group, tag, value } : edit,
+          ),
+        };
+      }
+
+      nextAdvancedEditId.current += 1;
+      return {
+        ...current,
+        advancedEdits: [
+          ...current.advancedEdits,
+          {
+            id: `advanced-${nextAdvancedEditId.current}`,
+            action: "set",
+            group,
+            tag,
+            value,
+          },
+        ],
+      };
+    });
+    invalidateRenderedOutput();
+  }
+
   function removeAdvancedMetadataEdit(id: string) {
     setMetadataEdit((current) => ({
       ...current,
@@ -997,14 +1082,57 @@ function App() {
                   <span>Output</span>
                   <mark>Status</mark>
                 </div>
-                {visibleMetadataRows.map((row) => (
-                  <div className="metadata-row" key={`${metadataTab}-${row.label}`}>
-                    <strong>{row.label}</strong>
-                    <span>{row.source}</span>
-                    <span>{row.output}</span>
-                    <mark className={row.status}>{row.status}</mark>
-                  </div>
-                ))}
+                {visibleMetadataRows.map((row, index) => {
+                  const editTarget = row.editTarget;
+                  const isEditing = editTarget
+                    ? editingMetadataTargetKey === getMetadataEditTargetKey(editTarget)
+                    : false;
+
+                  return (
+                    <div className="metadata-row" key={`${metadataTab}-${row.label}-${index}`}>
+                      <strong>{row.label}</strong>
+                      <span>{row.source}</span>
+                      <div className="metadata-output-cell">
+                        {editTarget && isEditing ? (
+                          <input
+                            autoFocus
+                            className="metadata-output-input"
+                            value={getMetadataEditTargetValue(editTarget, metadataEdit.advancedEdits)}
+                            onBlur={() => setEditingMetadataTargetKey(null)}
+                            onChange={(event) => updateMetadataRowEditValue(editTarget, event.target.value)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" || event.key === "Escape") {
+                                setEditingMetadataTargetKey(null);
+                              }
+                            }}
+                          />
+                        ) : (
+                          <span>{row.output}</span>
+                        )}
+                        {editTarget ? (
+                          <button
+                            type="button"
+                            className={isEditing ? "metadata-row-edit-button active" : "metadata-row-edit-button"}
+                            disabled={!editTarget.writable}
+                            title={editTarget.writable ? `Edit ${row.label}` : "This metadata field is read-only"}
+                            aria-label={`Edit ${row.label}`}
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => {
+                              if (isEditing) {
+                                setEditingMetadataTargetKey(null);
+                              } else {
+                                startMetadataRowEdit(editTarget);
+                              }
+                            }}
+                          >
+                            <PencilIcon />
+                          </button>
+                        ) : null}
+                      </div>
+                      <mark className={row.status}>{row.status}</mark>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
@@ -1490,6 +1618,15 @@ function AdvancedMetadataEditor(props: {
         Add tag edit
       </button>
     </div>
+  );
+}
+
+function PencilIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4 20h4l10.8-10.8a2.1 2.1 0 0 0 0-3L17.8 5.2a2.1 2.1 0 0 0-3 0L4 16v4Z" />
+      <path d="m13.5 6.5 4 4" />
+    </svg>
   );
 }
 
@@ -2324,6 +2461,28 @@ function getAdvancedEditGroup(tag: string): string {
   return tag.includes(":") ? tag.split(":", 1)[0] : "";
 }
 
+function getAdvancedEditTag(tag: string): string {
+  return tag.includes(":") ? tag.split(":").slice(1).join(":") : tag;
+}
+
+function getMetadataEditTargetKey(target: MetadataEditTarget): string {
+  return `${target.group.trim().toLowerCase()}:${target.tag.trim().toLowerCase()}`;
+}
+
+function getMetadataEditTargetValue(target: MetadataEditTarget, edits: MetadataAdvancedEditState[]): string {
+  const edit = edits.find((candidate) => doesAdvancedEditMatchTarget(candidate, target));
+  if (!edit || edit.action === "remove") {
+    return formatMetadataValue(target.value);
+  }
+  return edit.value;
+}
+
+function doesAdvancedEditMatchTarget(edit: MetadataAdvancedEditState, target: MetadataEditTarget): boolean {
+  const tag = edit.tag.trim();
+  const group = edit.group.trim() || getAdvancedEditGroup(tag);
+  return getMetadataEditTargetKey({ ...target, group, tag: getAdvancedEditTag(tag) }) === getMetadataEditTargetKey(target);
+}
+
 function isExifMetadataItem(item: MetadataItem): boolean {
   const group = item.group.toLowerCase();
   const tag = item.tag.toLowerCase();
@@ -2416,7 +2575,7 @@ function buildMetadataRows(
   const plannedRows = [
     ...buildPlannedMetadataRows(tab, edit, entries.map((item) => item.tag)),
     ...buildQuickPlannedMetadataRows(tab, edit.quickFields, entries),
-    ...buildAdvancedPlannedMetadataRows(tab, edit.advancedEdits),
+    ...buildAdvancedPlannedMetadataRows(tab, edit.advancedEdits, entries),
   ];
   if (entries.length === 0 && plannedRows.length === 0) {
     return [{ label: tab.toUpperCase(), source: "Empty", output: "", status: "kept" }];
@@ -2429,6 +2588,12 @@ function buildMetadataRows(
       source: formatMetadataValue(item.value),
       output: plan.output,
       status: plan.status,
+      editTarget: {
+        group: item.group,
+        tag: item.tag,
+        value: item.value,
+        writable: item.writable,
+      },
     };
   });
 
@@ -2471,7 +2636,11 @@ function buildQuickPlannedMetadataRows(
   });
 }
 
-function buildAdvancedPlannedMetadataRows(tab: MetadataTab, edits: MetadataAdvancedEditState[]): MetadataRow[] {
+function buildAdvancedPlannedMetadataRows(
+  tab: MetadataTab,
+  edits: MetadataAdvancedEditState[],
+  existingItems: MetadataItem[],
+): MetadataRow[] {
   if (tab === "overview") {
     return [];
   }
@@ -2491,6 +2660,9 @@ function buildAdvancedPlannedMetadataRows(tab: MetadataTab, edits: MetadataAdvan
       writable: true,
     };
     if (!doesMetadataItemMatchTab(metadataItem, tab)) {
+      return [];
+    }
+    if (existingItems.some((item) => doesMetadataTargetMatchItem(metadataItem, item))) {
       return [];
     }
 
@@ -2554,6 +2726,11 @@ function getMetadataRowPlan(
     return quickPlan;
   }
 
+  const advancedPlan = getAdvancedMetadataRowPlan(item, edit.advancedEdits);
+  if (advancedPlan) {
+    return advancedPlan;
+  }
+
   if (edit.stripAll) {
     return { output: "Removed", status: "removed" };
   }
@@ -2603,6 +2780,23 @@ function getQuickMetadataRowPlan(
     }
   }
   return null;
+}
+
+function getAdvancedMetadataRowPlan(
+  item: MetadataItem,
+  edits: MetadataAdvancedEditState[],
+): Pick<MetadataRow, "output" | "status"> | null {
+  const target: MetadataEditTarget = {
+    group: item.group,
+    tag: item.tag,
+    value: item.value,
+    writable: item.writable,
+  };
+  const edit = edits.find((candidate) => doesAdvancedEditMatchTarget(candidate, target));
+  if (!edit) {
+    return null;
+  }
+  return getFieldActionPlan(edit.action, edit.value);
 }
 
 function getFieldActionPlan(action: MetadataFieldAction, value: string): Pick<MetadataRow, "output" | "status"> {
