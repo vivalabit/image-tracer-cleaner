@@ -5,6 +5,7 @@ import { analyzeImages, fetchMethods, randomizeImage, readImageMetadata } from "
 import type {
   ImageAnalysis,
   ImageMetadata,
+  MetadataAdvancedEdit,
   MetadataItem,
   MetadataEditPayload,
   MethodDefinition,
@@ -20,6 +21,19 @@ type PreviewMode = "compare" | "slider" | "difference";
 type MetadataTab = "overview" | "exif" | "iptc" | "xmp" | "output";
 type ParamMode = "manual" | "random";
 type MetadataFieldAction = "keep" | "set" | "remove";
+type MetadataAdvancedAction = "set" | "remove";
+type QuickMetadataFieldId =
+  | "title"
+  | "description"
+  | "copyright"
+  | "keywords"
+  | "cameraMake"
+  | "cameraModel"
+  | "lensModel"
+  | "savedAt"
+  | "modifiedAt"
+  | "gpsLatitude"
+  | "gpsLongitude";
 
 type PipelineParam = {
   id: string;
@@ -63,6 +77,37 @@ type MetadataEditState = {
   createdAtValue: string;
   takenAtAction: MetadataFieldAction;
   takenAtValue: string;
+  quickFields: QuickMetadataFieldStateMap;
+  advancedEdits: MetadataAdvancedEditState[];
+};
+
+type QuickMetadataTarget = {
+  group: string;
+  tag: string;
+};
+
+type QuickMetadataFieldConfig = {
+  id: QuickMetadataFieldId;
+  label: string;
+  targets: QuickMetadataTarget[];
+  lookupTags: string[];
+  inputType?: "text" | "datetime-local";
+  valueType?: "text" | "datetime";
+};
+
+type QuickMetadataFieldState = {
+  action: MetadataFieldAction;
+  value: string;
+};
+
+type QuickMetadataFieldStateMap = Record<QuickMetadataFieldId, QuickMetadataFieldState>;
+
+type MetadataAdvancedEditState = {
+  id: string;
+  action: MetadataAdvancedAction;
+  group: string;
+  tag: string;
+  value: string;
 };
 
 const endpointRows = [
@@ -70,6 +115,100 @@ const endpointRows = [
   { method: "POST", path: "/api/metadata/read", note: "metadata viewer" },
   { method: "POST", path: "/api/randomize", note: "operations + metadata" },
   { method: "POST", path: "/api/analyze", note: "result analysis" },
+];
+
+const quickMetadataFields: QuickMetadataFieldConfig[] = [
+  {
+    id: "title",
+    label: "Title",
+    targets: [{ group: "XMP-dc", tag: "Title" }],
+    lookupTags: ["Title", "ObjectName"],
+  },
+  {
+    id: "description",
+    label: "Description",
+    targets: [
+      { group: "XMP-dc", tag: "Description" },
+      { group: "IFD0", tag: "ImageDescription" },
+    ],
+    lookupTags: ["Description", "ImageDescription", "Caption-Abstract"],
+  },
+  {
+    id: "copyright",
+    label: "Copyright",
+    targets: [
+      { group: "IFD0", tag: "Copyright" },
+      { group: "XMP-dc", tag: "Rights" },
+    ],
+    lookupTags: ["Copyright", "Rights"],
+  },
+  {
+    id: "keywords",
+    label: "Keywords",
+    targets: [{ group: "XMP-dc", tag: "Subject" }],
+    lookupTags: ["Subject", "Keywords"],
+  },
+  {
+    id: "cameraMake",
+    label: "Device make",
+    targets: [
+      { group: "IFD0", tag: "Make" },
+      { group: "XMP-tiff", tag: "Make" },
+    ],
+    lookupTags: ["Make"],
+  },
+  {
+    id: "cameraModel",
+    label: "Device model",
+    targets: [
+      { group: "IFD0", tag: "Model" },
+      { group: "XMP-tiff", tag: "Model" },
+    ],
+    lookupTags: ["Model"],
+  },
+  {
+    id: "lensModel",
+    label: "Lens model",
+    targets: [{ group: "ExifIFD", tag: "LensModel" }],
+    lookupTags: ["LensModel", "Lens"],
+  },
+  {
+    id: "savedAt",
+    label: "Saved date",
+    targets: [{ group: "XMP-xmp", tag: "MetadataDate" }],
+    lookupTags: ["MetadataDate"],
+    inputType: "datetime-local",
+    valueType: "datetime",
+  },
+  {
+    id: "modifiedAt",
+    label: "Modified date",
+    targets: [
+      { group: "IFD0", tag: "ModifyDate" },
+      { group: "XMP-xmp", tag: "ModifyDate" },
+    ],
+    lookupTags: ["ModifyDate"],
+    inputType: "datetime-local",
+    valueType: "datetime",
+  },
+  {
+    id: "gpsLatitude",
+    label: "GPS latitude",
+    targets: [
+      { group: "GPS", tag: "GPSLatitude" },
+      { group: "XMP-exif", tag: "GPSLatitude" },
+    ],
+    lookupTags: ["GPSLatitude"],
+  },
+  {
+    id: "gpsLongitude",
+    label: "GPS longitude",
+    targets: [
+      { group: "GPS", tag: "GPSLongitude" },
+      { group: "XMP-exif", tag: "GPSLongitude" },
+    ],
+    lookupTags: ["GPSLongitude"],
+  },
 ];
 
 const defaultMetadataEdit: MetadataEditState = {
@@ -83,7 +222,29 @@ const defaultMetadataEdit: MetadataEditState = {
   createdAtValue: "",
   takenAtAction: "keep",
   takenAtValue: "",
+  quickFields: createDefaultQuickMetadataFields(),
+  advancedEdits: [],
 };
+
+function createDefaultQuickMetadataFields(): QuickMetadataFieldStateMap {
+  return {
+    title: createDefaultQuickMetadataField(),
+    description: createDefaultQuickMetadataField(),
+    copyright: createDefaultQuickMetadataField(),
+    keywords: createDefaultQuickMetadataField(),
+    cameraMake: createDefaultQuickMetadataField(),
+    cameraModel: createDefaultQuickMetadataField(),
+    lensModel: createDefaultQuickMetadataField(),
+    savedAt: createDefaultQuickMetadataField(),
+    modifiedAt: createDefaultQuickMetadataField(),
+    gpsLatitude: createDefaultQuickMetadataField(),
+    gpsLongitude: createDefaultQuickMetadataField(),
+  };
+}
+
+function createDefaultQuickMetadataField(): QuickMetadataFieldState {
+  return { action: "keep", value: "" };
+}
 
 const fallbackMethods: MethodDefinition[] = [
   createFallbackMethod("hmirror", "Horizontal mirror"),
@@ -135,6 +296,7 @@ function App() {
   const outputUrlRef = useRef("");
   const previewAbortController = useRef<AbortController | null>(null);
   const previewRequestId = useRef(0);
+  const nextAdvancedEditId = useRef(0);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -485,17 +647,63 @@ function App() {
     invalidateRenderedOutput();
   }
 
+  function updateQuickMetadataField(id: QuickMetadataFieldId, patch: Partial<QuickMetadataFieldState>) {
+    setMetadataEdit((current) => ({
+      ...current,
+      quickFields: {
+        ...current.quickFields,
+        [id]: { ...current.quickFields[id], ...patch },
+      },
+    }));
+    invalidateRenderedOutput();
+  }
+
+  function addAdvancedMetadataEdit() {
+    nextAdvancedEditId.current += 1;
+    const nextEdit: MetadataAdvancedEditState = {
+      id: `advanced-${nextAdvancedEditId.current}`,
+      action: "set",
+      group: "",
+      tag: "",
+      value: "",
+    };
+    setMetadataEdit((current) => ({ ...current, advancedEdits: [...current.advancedEdits, nextEdit] }));
+    invalidateRenderedOutput();
+  }
+
+  function updateAdvancedMetadataEdit(id: string, patch: Partial<MetadataAdvancedEditState>) {
+    setMetadataEdit((current) => ({
+      ...current,
+      advancedEdits: current.advancedEdits.map((edit) => (edit.id === id ? { ...edit, ...patch } : edit)),
+    }));
+    invalidateRenderedOutput();
+  }
+
+  function removeAdvancedMetadataEdit(id: string) {
+    setMetadataEdit((current) => ({
+      ...current,
+      advancedEdits: current.advancedEdits.filter((edit) => edit.id !== id),
+    }));
+    invalidateRenderedOutput();
+  }
+
   function toggleRemoveAllMetadata(checked: boolean) {
     setMetadataEdit((current) =>
       checked
-        ? { ...defaultMetadataEdit, stripAll: true, softwareValue: "" }
+        ? { ...current, stripAll: true, stripGps: false, softwareValue: "" }
         : { ...current, stripAll: false },
     );
     invalidateRenderedOutput();
   }
 
   function removeAllMetadata() {
-    setMetadataEdit({ ...defaultMetadataEdit, stripAll: true, softwareValue: "" });
+    setMetadataEdit((current) => ({
+      ...defaultMetadataEdit,
+      stripAll: true,
+      softwareValue: "",
+      quickFields: current.quickFields,
+      advancedEdits: current.advancedEdits,
+    }));
     invalidateRenderedOutput();
   }
 
@@ -827,16 +1035,21 @@ function App() {
                 />
                 <span>
                   <strong>Remove all metadata</strong>
-                  <small>Export the photo with metadata, EXIF, XMP, and color profile cleared.</small>
+                  <small>Clear existing metadata first, then write any fields set below.</small>
                 </span>
               </label>
+
+              <div className="metadata-section-heading">
+                <span className="eyebrow">Common fields</span>
+                <strong>Author, dates, title, device, GPS</strong>
+              </div>
 
               <MetadataFieldEditor
                 label="Creator"
                 action={metadataEdit.creatorAction}
                 value={metadataEdit.creatorValue}
                 currentValue={getMetadataCurrentValue(metadata, "creator")}
-                disabled={metadataEdit.stripAll}
+                disabled={false}
                 onActionChange={(creatorAction) => updateMetadataEdit({ creatorAction })}
                 onValueChange={(creatorValue) => updateMetadataEdit({ creatorValue })}
               />
@@ -846,7 +1059,7 @@ function App() {
                 action={metadataEdit.softwareAction}
                 value={metadataEdit.softwareValue}
                 currentValue={getMetadataCurrentValue(metadata, "software")}
-                disabled={metadataEdit.stripAll}
+                disabled={false}
                 onActionChange={(softwareAction) => updateMetadataEdit({ softwareAction })}
                 onValueChange={(softwareValue) => updateMetadataEdit({ softwareValue })}
               />
@@ -856,7 +1069,7 @@ function App() {
                 action={metadataEdit.createdAtAction}
                 value={metadataEdit.createdAtValue}
                 currentValue={getMetadataCurrentValue(metadata, "createdAt")}
-                disabled={metadataEdit.stripAll}
+                disabled={false}
                 inputType="datetime-local"
                 onActionChange={(createdAtAction) => updateMetadataEdit({ createdAtAction })}
                 onValueChange={(createdAtValue) => updateMetadataEdit({ createdAtValue })}
@@ -867,10 +1080,31 @@ function App() {
                 action={metadataEdit.takenAtAction}
                 value={metadataEdit.takenAtValue}
                 currentValue={getMetadataCurrentValue(metadata, "takenAt")}
-                disabled={metadataEdit.stripAll}
+                disabled={false}
                 inputType="datetime-local"
                 onActionChange={(takenAtAction) => updateMetadataEdit({ takenAtAction })}
                 onValueChange={(takenAtValue) => updateMetadataEdit({ takenAtValue })}
+              />
+
+              {quickMetadataFields.map((field) => (
+                <MetadataFieldEditor
+                  key={field.id}
+                  label={field.label}
+                  action={metadataEdit.quickFields[field.id].action}
+                  value={metadataEdit.quickFields[field.id].value}
+                  currentValue={getQuickMetadataCurrentValue(metadata, field)}
+                  disabled={false}
+                  inputType={field.inputType}
+                  onActionChange={(action) => updateQuickMetadataField(field.id, { action })}
+                  onValueChange={(value) => updateQuickMetadataField(field.id, { value })}
+                />
+              ))}
+
+              <AdvancedMetadataEditor
+                edits={metadataEdit.advancedEdits}
+                onAdd={addAdvancedMetadataEdit}
+                onChange={updateAdvancedMetadataEdit}
+                onRemove={removeAdvancedMetadataEdit}
               />
             </aside>
           </div>
@@ -1193,6 +1427,68 @@ function StepSettingsMenu(props: {
           <div className="empty-row">No settings</div>
         )}
       </div>
+    </div>
+  );
+}
+
+function AdvancedMetadataEditor(props: {
+  edits: MetadataAdvancedEditState[];
+  onAdd: () => void;
+  onChange: (id: string, patch: Partial<MetadataAdvancedEditState>) => void;
+  onRemove: (id: string) => void;
+}) {
+  return (
+    <div className="metadata-advanced-editor">
+      <div className="metadata-field-heading">
+        <strong>Advanced tags</strong>
+        <small>{props.edits.length > 0 ? `${props.edits.length} pending` : "No pending edits"}</small>
+      </div>
+      <div className="metadata-advanced-list">
+        {props.edits.map((edit) => (
+          <div className="metadata-advanced-row" key={edit.id}>
+            <div className="metadata-action-tabs compact" aria-label="Advanced metadata action">
+              {(["set", "remove"] as const).map((action) => (
+                <button
+                  key={action}
+                  type="button"
+                  className={edit.action === action ? "active" : ""}
+                  onClick={() => props.onChange(edit.id, { action })}
+                >
+                  {formatMetadataAction(action)}
+                </button>
+              ))}
+            </div>
+            <div className="metadata-tag-inputs">
+              <input
+                aria-label="Metadata group"
+                value={edit.group}
+                placeholder="Group"
+                onChange={(event) => props.onChange(edit.id, { group: event.target.value })}
+              />
+              <input
+                aria-label="Metadata tag"
+                value={edit.tag}
+                placeholder="Tag"
+                onChange={(event) => props.onChange(edit.id, { tag: event.target.value })}
+              />
+            </div>
+            {edit.action === "set" ? (
+              <input
+                aria-label="Metadata value"
+                value={edit.value}
+                placeholder="Value"
+                onChange={(event) => props.onChange(edit.id, { value: event.target.value })}
+              />
+            ) : null}
+            <button type="button" className="ghost-button small-button" onClick={() => props.onRemove(edit.id)}>
+              Remove
+            </button>
+          </div>
+        ))}
+      </div>
+      <button type="button" className="ghost-button small-button" onClick={props.onAdd}>
+        Add tag edit
+      </button>
     </div>
   );
 }
@@ -1787,13 +2083,9 @@ function createPipelineStep(method: MethodDefinition, stepNumber: number): Pipel
 }
 
 function buildMetadataEditPayload(edit: MetadataEditState): MetadataEditPayload | null {
-  if (edit.stripAll) {
-    return { strip_all: true };
-  }
-
   const payload: MetadataEditPayload = {
-    strip_all: false,
-    strip_gps: edit.stripGps,
+    strip_all: edit.stripAll,
+    strip_gps: edit.stripAll ? false : edit.stripGps,
   };
 
   if (edit.creatorAction === "set") {
@@ -1820,7 +2112,66 @@ function buildMetadataEditPayload(edit: MetadataEditState): MetadataEditPayload 
     payload.taken_at = "";
   }
 
+  const advancedEdits = [
+    ...buildQuickMetadataPayload(edit.quickFields),
+    ...buildAdvancedMetadataPayload(edit.advancedEdits),
+  ];
+  if (advancedEdits.length > 0) {
+    payload.advanced_edits = advancedEdits;
+  }
+
   return hasMetadataEdits(payload) ? payload : null;
+}
+
+function buildQuickMetadataPayload(quickFields: QuickMetadataFieldStateMap): MetadataAdvancedEdit[] {
+  return quickMetadataFields.flatMap((field) => {
+    const state = quickFields[field.id];
+    if (state.action === "keep") {
+      return [];
+    }
+
+    return field.targets.map((target) => {
+      const value = formatQuickMetadataValue(field, state.value);
+      const payload: MetadataAdvancedEdit = {
+        action: state.action === "set" ? "set" : "remove",
+        group: target.group,
+        tag: target.tag,
+      };
+      if (state.action === "set") {
+        payload.value = value;
+      }
+      return payload;
+    });
+  });
+}
+
+function formatQuickMetadataValue(field: QuickMetadataFieldConfig, value: string): string {
+  if (field.valueType === "datetime") {
+    return formatExifToolDatetime(value);
+  }
+  return value;
+}
+
+function buildAdvancedMetadataPayload(edits: MetadataAdvancedEditState[]): MetadataAdvancedEdit[] {
+  return edits.flatMap((edit) => {
+    const tag = edit.tag.trim();
+    const group = edit.group.trim();
+    if (!tag) {
+      return [];
+    }
+
+    const payload: MetadataAdvancedEdit = {
+      action: edit.action,
+      tag,
+    };
+    if (group) {
+      payload.group = group;
+    }
+    if (edit.action === "set") {
+      payload.value = edit.value;
+    }
+    return [payload];
+  });
 }
 
 function hasMetadataEdits(payload: MetadataEditPayload): boolean {
@@ -1830,13 +2181,20 @@ function hasMetadataEdits(payload: MetadataEditPayload): boolean {
       "creator" in payload ||
       "software" in payload ||
       "created_at" in payload ||
-      "taken_at" in payload,
+      "taken_at" in payload ||
+      (payload.advanced_edits && payload.advanced_edits.length > 0),
   );
 }
 
 function formatMetadataEditSummary(edit: MetadataEditState): string {
+  const quickEditCount = countQuickMetadataEdits(edit.quickFields);
+  const advancedEditCount = countAdvancedMetadataEdits(edit.advancedEdits);
+
   if (edit.stripAll) {
-    return "All metadata will be removed";
+    const rewriteCount = quickEditCount + advancedEditCount + countSimpleMetadataEdits(edit);
+    return rewriteCount > 0
+      ? `All metadata will be removed / ${rewriteCount} fields rewritten`
+      : "All metadata will be removed";
   }
 
   const actions = [
@@ -1845,9 +2203,28 @@ function formatMetadataEditSummary(edit: MetadataEditState): string {
     edit.softwareAction !== "keep" ? `Software ${edit.softwareAction}` : "",
     edit.createdAtAction !== "keep" ? `Created date ${edit.createdAtAction}` : "",
     edit.takenAtAction !== "keep" ? `Taken date ${edit.takenAtAction}` : "",
+    quickEditCount > 0 ? `${quickEditCount} common fields` : "",
+    advancedEditCount > 0 ? `${advancedEditCount} advanced edits` : "",
   ].filter(Boolean);
 
   return actions.length > 0 ? actions.join(" / ") : "No metadata edits";
+}
+
+function countSimpleMetadataEdits(edit: MetadataEditState): number {
+  return [
+    edit.creatorAction,
+    edit.softwareAction,
+    edit.createdAtAction,
+    edit.takenAtAction,
+  ].filter((action) => action !== "keep").length;
+}
+
+function countQuickMetadataEdits(quickFields: QuickMetadataFieldStateMap): number {
+  return quickMetadataFields.filter((field) => quickFields[field.id].action !== "keep").length;
+}
+
+function countAdvancedMetadataEdits(edits: MetadataAdvancedEditState[]): number {
+  return edits.filter((advanced) => advanced.tag.trim()).length;
 }
 
 function formatMetadataAction(action: MetadataFieldAction): string {
@@ -1864,11 +2241,19 @@ function getMetadataCurrentValue(
   metadata: ImageMetadata | null,
   field: "creator" | "software" | "createdAt" | "takenAt",
 ): string {
+  return getMetadataCurrentValueByTags(metadata, getMetadataFieldKeys(field));
+}
+
+function getQuickMetadataCurrentValue(metadata: ImageMetadata | null, field: QuickMetadataFieldConfig): string {
+  return getMetadataCurrentValueByTags(metadata, field.lookupTags);
+}
+
+function getMetadataCurrentValueByTags(metadata: ImageMetadata | null, tags: string[]): string {
   if (!metadata) {
     return "";
   }
 
-  const item = findMetadataItemByTags(metadata, getMetadataFieldKeys(field));
+  const item = findMetadataItemByTags(metadata, tags);
   if (item) {
     return formatMetadataValue(item.value);
   }
@@ -1884,9 +2269,9 @@ function getMetadataFieldKeys(field: "creator" | "software" | "createdAt" | "tak
     return ["Software"];
   }
   if (field === "createdAt") {
-    return ["DateTime"];
+    return ["ModifyDate", "DateTime"];
   }
-  return ["DateTimeOriginal", "DateTimeDigitized"];
+  return ["DateTimeOriginal", "CreateDate", "DateTimeDigitized"];
 }
 
 function getMetadataFormat(metadata: ImageMetadata | null): string | null {
@@ -1916,19 +2301,27 @@ function findMetadataItemByTags(metadata: ImageMetadata, tags: string[]): Metada
 }
 
 function getMetadataItemsForTab(metadata: ImageMetadata, tab: MetadataTab): MetadataItem[] {
+  return metadata.filter((item) => doesMetadataItemMatchTab(item, tab));
+}
+
+function doesMetadataItemMatchTab(item: MetadataItem, tab: MetadataTab): boolean {
   if (tab === "exif") {
-    return metadata.filter(isExifMetadataItem);
+    return isExifMetadataItem(item);
   }
   if (tab === "iptc") {
-    return metadata.filter((item) => item.group.toLowerCase().includes("iptc"));
+    return isIptcMetadataItem(item);
   }
   if (tab === "xmp") {
-    return metadata.filter(isXmpMetadataItem);
+    return isXmpMetadataItem(item);
   }
   if (tab === "output") {
-    return metadata.filter((item) => !isExifMetadataItem(item) && !isXmpMetadataItem(item) && !isIptcMetadataItem(item));
+    return !isExifMetadataItem(item) && !isXmpMetadataItem(item) && !isIptcMetadataItem(item);
   }
-  return metadata;
+  return true;
+}
+
+function getAdvancedEditGroup(tag: string): string {
+  return tag.includes(":") ? tag.split(":", 1)[0] : "";
 }
 
 function isExifMetadataItem(item: MetadataItem): boolean {
@@ -1981,6 +2374,8 @@ function buildMetadataRows(
   if (tab === "overview") {
     const gpsPresent = hasGpsMetadata(metadata);
     const dimensions = [getMetadataWidth(metadata), getMetadataHeight(metadata)].filter(Boolean).join(" x ");
+    const quickEditCount = countQuickMetadataEdits(edit.quickFields);
+    const advancedEditCount = countAdvancedMetadataEdits(edit.advancedEdits);
     return [
       { label: "Format", source: getMetadataFormat(metadata) ?? "Unknown", output: "", status: "kept" },
       {
@@ -1998,21 +2393,37 @@ function buildMetadataRows(
       {
         label: "Fields",
         source: String(metadata.length),
-        output: edit.stripAll ? "File fields remain" : "",
+        output: edit.stripAll ? "Cleared before field edits" : "",
         status: edit.stripAll ? "edited" : "kept",
+      },
+      {
+        label: "Common field edits",
+        source: String(quickEditCount),
+        output: quickEditCount > 0 ? "Applied on export" : "",
+        status: quickEditCount > 0 ? "edited" : "kept",
+      },
+      {
+        label: "Advanced edits",
+        source: String(advancedEditCount),
+        output: advancedEditCount > 0 ? "Applied on export" : "",
+        status: advancedEditCount > 0 ? "edited" : "kept",
       },
       { label: "Writable fields", source: String(metadata.filter((item) => item.writable).length), output: "", status: "kept" },
     ];
   }
 
   const entries = getMetadataItemsForTab(metadata, tab);
-  const plannedRows = buildPlannedMetadataRows(tab, edit, entries.map((item) => item.tag));
+  const plannedRows = [
+    ...buildPlannedMetadataRows(tab, edit, entries.map((item) => item.tag)),
+    ...buildQuickPlannedMetadataRows(tab, edit.quickFields, entries),
+    ...buildAdvancedPlannedMetadataRows(tab, edit.advancedEdits),
+  ];
   if (entries.length === 0 && plannedRows.length === 0) {
     return [{ label: tab.toUpperCase(), source: "Empty", output: "", status: "kept" }];
   }
 
   const metadataRows = entries.map((item) => {
-    const plan = getMetadataRowPlan(tab, item.tag, item.value, edit);
+    const plan = getMetadataRowPlan(tab, item, edit);
     return {
       label: formatMetadataItemLabel(item),
       source: formatMetadataValue(item.value),
@@ -2022,6 +2433,93 @@ function buildMetadataRows(
   });
 
   return [...metadataRows, ...plannedRows];
+}
+
+function buildQuickPlannedMetadataRows(
+  tab: MetadataTab,
+  quickFields: QuickMetadataFieldStateMap,
+  existingItems: MetadataItem[],
+): MetadataRow[] {
+  if (tab === "overview") {
+    return [];
+  }
+
+  return quickMetadataFields.flatMap((field) => {
+    const state = quickFields[field.id];
+    if (state.action === "keep") {
+      return [];
+    }
+
+    return field.targets.flatMap((target) => {
+      const metadataItem = metadataItemFromTarget(target, state.value);
+      if (
+        !doesMetadataItemMatchTab(metadataItem, tab) ||
+        existingItems.some((item) => doesMetadataTargetMatchItem(target, item))
+      ) {
+        return [];
+      }
+
+      return [
+        {
+          label: formatMetadataItemLabel(metadataItem),
+          source: "Not present",
+          output: state.action === "set" ? formatQuickMetadataValue(field, state.value) || "Empty value" : "Removed",
+          status: state.action === "set" ? "edited" : "removed",
+        },
+      ];
+    });
+  });
+}
+
+function buildAdvancedPlannedMetadataRows(tab: MetadataTab, edits: MetadataAdvancedEditState[]): MetadataRow[] {
+  if (tab === "overview") {
+    return [];
+  }
+
+  return edits.flatMap((edit) => {
+    const tag = edit.tag.trim();
+    if (!tag) {
+      return [];
+    }
+
+    const group = edit.group.trim() || getAdvancedEditGroup(tag);
+    const metadataItem: MetadataItem = {
+      group,
+      tag: tag.includes(":") ? tag.split(":").slice(1).join(":") : tag,
+      label: tag.includes(":") ? tag.split(":").slice(1).join(":") : tag,
+      value: edit.value,
+      writable: true,
+    };
+    if (!doesMetadataItemMatchTab(metadataItem, tab)) {
+      return [];
+    }
+
+    return [
+      {
+        label: formatMetadataItemLabel(metadataItem),
+        source: "Planned",
+        output: edit.action === "set" ? edit.value || "Empty value" : "Removed",
+        status: edit.action === "set" ? "edited" : "removed",
+      },
+    ];
+  });
+}
+
+function metadataItemFromTarget(target: QuickMetadataTarget, value: string): MetadataItem {
+  return {
+    group: target.group,
+    tag: target.tag,
+    label: target.tag,
+    value,
+    writable: true,
+  };
+}
+
+function doesMetadataTargetMatchItem(target: QuickMetadataTarget, item: MetadataItem): boolean {
+  return (
+    target.group.toLowerCase() === item.group.toLowerCase() &&
+    target.tag.toLowerCase() === item.tag.toLowerCase()
+  );
 }
 
 function getGpsOutput(edit: MetadataEditState, gpsPresent: boolean): string {
@@ -2043,35 +2541,68 @@ function getGpsStatus(edit: MetadataEditState, gpsPresent: boolean): MetadataRow
 
 function getMetadataRowPlan(
   tab: MetadataTab,
-  label: string,
-  value: unknown,
+  item: MetadataItem,
   edit: MetadataEditState,
 ): Pick<MetadataRow, "output" | "status"> {
+  const simplePlan = getSimpleMetadataRowPlan(tab, item.tag, edit);
+  if (simplePlan) {
+    return simplePlan;
+  }
+
+  const quickPlan = getQuickMetadataRowPlan(item, edit.quickFields);
+  if (quickPlan) {
+    return quickPlan;
+  }
+
   if (edit.stripAll) {
     return { output: "Removed", status: "removed" };
   }
 
-  if (tab === "exif" && isCreatorMetadataLabel(label)) {
-    return getFieldActionPlan(edit.creatorAction, edit.creatorValue);
-  }
-
-  if (tab === "exif" && isSoftwareMetadataLabel(label)) {
-    return getFieldActionPlan(edit.softwareAction, edit.softwareValue);
-  }
-
-  if (tab === "exif" && isCreatedDateMetadataLabel(label)) {
-    return getFieldActionPlan(edit.createdAtAction, formatDateMetadataOutput(edit.createdAtValue));
-  }
-
-  if (tab === "exif" && isTakenDateMetadataLabel(label)) {
-    return getFieldActionPlan(edit.takenAtAction, formatDateMetadataOutput(edit.takenAtValue));
-  }
-
-  if (tab === "xmp" && edit.stripGps && String(value).includes("GPS")) {
+  if (tab === "xmp" && edit.stripGps && String(item.value).includes("GPS")) {
     return { output: "GPS data removed", status: "removed" };
   }
 
   return { output: "", status: "kept" };
+}
+
+function getSimpleMetadataRowPlan(
+  tab: MetadataTab,
+  tag: string,
+  edit: MetadataEditState,
+): Pick<MetadataRow, "output" | "status"> | null {
+  if (tab === "exif" && isCreatorMetadataLabel(tag) && edit.creatorAction !== "keep") {
+    return getFieldActionPlan(edit.creatorAction, edit.creatorValue);
+  }
+
+  if (tab === "exif" && isSoftwareMetadataLabel(tag) && edit.softwareAction !== "keep") {
+    return getFieldActionPlan(edit.softwareAction, edit.softwareValue);
+  }
+
+  if (tab === "exif" && isCreatedDateMetadataLabel(tag) && edit.createdAtAction !== "keep") {
+    return getFieldActionPlan(edit.createdAtAction, formatDateMetadataOutput(edit.createdAtValue));
+  }
+
+  if (tab === "exif" && isTakenDateMetadataLabel(tag) && edit.takenAtAction !== "keep") {
+    return getFieldActionPlan(edit.takenAtAction, formatDateMetadataOutput(edit.takenAtValue));
+  }
+
+  return null;
+}
+
+function getQuickMetadataRowPlan(
+  item: MetadataItem,
+  quickFields: QuickMetadataFieldStateMap,
+): Pick<MetadataRow, "output" | "status"> | null {
+  for (const field of quickMetadataFields) {
+    const state = quickFields[field.id];
+    if (state.action === "keep") {
+      continue;
+    }
+    if (field.targets.some((target) => doesMetadataTargetMatchItem(target, item))) {
+      return getFieldActionPlan(state.action, formatQuickMetadataValue(field, state.value));
+    }
+  }
+  return null;
 }
 
 function getFieldActionPlan(action: MetadataFieldAction, value: string): Pick<MetadataRow, "output" | "status"> {
@@ -2094,16 +2625,32 @@ function isSoftwareMetadataLabel(label: string): boolean {
 }
 
 function isCreatedDateMetadataLabel(label: string): boolean {
-  return label.toLowerCase() === "datetime";
+  const normalized = label.toLowerCase();
+  return normalized === "datetime" || normalized === "modifydate";
 }
 
 function isTakenDateMetadataLabel(label: string): boolean {
   const normalized = label.toLowerCase();
-  return normalized === "datetimeoriginal" || normalized === "datetimedigitized";
+  return normalized === "datetimeoriginal" || normalized === "createdate" || normalized === "datetimedigitized";
 }
 
 function formatDateMetadataOutput(value: string): string {
   return value.replace("T", " ");
+}
+
+function formatExifToolDatetime(value: string): string {
+  const normalized = value.trim();
+  if (!normalized) {
+    return "";
+  }
+
+  const match = normalized.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (!match) {
+    return normalized;
+  }
+
+  const [, year, month, day, hour, minute, second = "00"] = match;
+  return `${year}:${month}:${day} ${hour}:${minute}:${second}`;
 }
 
 function buildPlannedMetadataRows(
@@ -2111,7 +2658,7 @@ function buildPlannedMetadataRows(
   edit: MetadataEditState,
   existingLabels: string[],
 ): MetadataRow[] {
-  if (tab !== "exif" || edit.stripAll) {
+  if (tab !== "exif") {
     return [];
   }
 
