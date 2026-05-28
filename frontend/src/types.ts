@@ -36,6 +36,8 @@ export type MetadataEditPayload = {
   strip_all?: boolean;
   creator?: string;
   software?: string;
+  created_at?: string;
+  taken_at?: string;
 };
 
 export type RecipeStep = Operation & {

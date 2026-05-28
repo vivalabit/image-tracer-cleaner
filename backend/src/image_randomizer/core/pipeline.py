@@ -178,7 +178,14 @@ def build_png_info(image: Image.Image) -> PngImagePlugin.PngInfo | None:
     pnginfo = PngImagePlugin.PngInfo()
     has_text = False
 
-    for key in ("XML:com.adobe.xmp", "Creator", "Software"):
+    for key in (
+        "XML:com.adobe.xmp",
+        "Creator",
+        "Software",
+        "Creation Time",
+        "DateTimeOriginal",
+        "DateTimeDigitized",
+    ):
         value = image.info.get(key)
         if isinstance(value, bytes):
             try:

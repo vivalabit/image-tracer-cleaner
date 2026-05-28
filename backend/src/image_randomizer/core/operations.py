@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import random
 from collections.abc import Callable
+from datetime import datetime
 from typing import Any
 
 from PIL import ExifTags, Image, ImageChops, ImageEnhance, ImageFilter, ImageOps
@@ -140,6 +141,17 @@ def edit_metadata(image: Image.Image, rng: random.Random, params: dict[str, Any]
         set_metadata_text(result, ExifTags.Base.Artist, "Creator", str(params["creator"]))
     if "software" in params:
         set_metadata_text(result, ExifTags.Base.Software, "Software", str(params["software"]))
+    if "created_at" in params:
+        set_metadata_text(
+            result,
+            ExifTags.Base.DateTime,
+            "Creation Time",
+            normalize_metadata_datetime(params["created_at"]),
+        )
+    if "taken_at" in params:
+        taken_at = normalize_metadata_datetime(params["taken_at"])
+        set_metadata_text(result, ExifTags.Base.DateTimeOriginal, "DateTimeOriginal", taken_at)
+        set_metadata_text(result, ExifTags.Base.DateTimeDigitized, "DateTimeDigitized", taken_at)
 
     return result
 
@@ -225,3 +237,24 @@ def set_metadata_text(image: Image.Image, exif_tag: int, png_key: str, value: st
         image.info["exif"] = exif.tobytes()
     else:
         image.info.pop("exif", None)
+
+
+def normalize_metadata_datetime(value: object) -> str:
+    text = str(value).strip()
+    if not text:
+        return ""
+
+    for date_format in (
+        "%Y:%m:%d %H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%dT%H:%M",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+    ):
+        try:
+            parsed = datetime.strptime(text, date_format)
+        except ValueError:
+            continue
+        return parsed.strftime("%Y:%m:%d %H:%M:%S")
+
+    raise ValueError("metadata date values must use YYYY-MM-DDTHH:MM or YYYY:MM:DD HH:MM:SS")

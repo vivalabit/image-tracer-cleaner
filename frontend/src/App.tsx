@@ -58,6 +58,10 @@ type MetadataEditState = {
   creatorValue: string;
   softwareAction: MetadataFieldAction;
   softwareValue: string;
+  createdAtAction: MetadataFieldAction;
+  createdAtValue: string;
+  takenAtAction: MetadataFieldAction;
+  takenAtValue: string;
 };
 
 const endpointRows = [
@@ -74,6 +78,10 @@ const defaultMetadataEdit: MetadataEditState = {
   creatorValue: "",
   softwareAction: "keep",
   softwareValue: "Image Randomizer",
+  createdAtAction: "keep",
+  createdAtValue: "",
+  takenAtAction: "keep",
+  takenAtValue: "",
 };
 
 const fallbackMethods: MethodDefinition[] = [
@@ -841,6 +849,28 @@ function App() {
                 onActionChange={(softwareAction) => updateMetadataEdit({ softwareAction })}
                 onValueChange={(softwareValue) => updateMetadataEdit({ softwareValue })}
               />
+
+              <MetadataFieldEditor
+                label="Created date"
+                action={metadataEdit.createdAtAction}
+                value={metadataEdit.createdAtValue}
+                currentValue={getMetadataCurrentValue(metadata, "createdAt")}
+                disabled={metadataEdit.stripAll}
+                inputType="datetime-local"
+                onActionChange={(createdAtAction) => updateMetadataEdit({ createdAtAction })}
+                onValueChange={(createdAtValue) => updateMetadataEdit({ createdAtValue })}
+              />
+
+              <MetadataFieldEditor
+                label="Taken date"
+                action={metadataEdit.takenAtAction}
+                value={metadataEdit.takenAtValue}
+                currentValue={getMetadataCurrentValue(metadata, "takenAt")}
+                disabled={metadataEdit.stripAll}
+                inputType="datetime-local"
+                onActionChange={(takenAtAction) => updateMetadataEdit({ takenAtAction })}
+                onValueChange={(takenAtValue) => updateMetadataEdit({ takenAtValue })}
+              />
             </aside>
           </div>
         </section>
@@ -1172,6 +1202,7 @@ function MetadataFieldEditor(props: {
   value: string;
   currentValue: string;
   disabled: boolean;
+  inputType?: "text" | "datetime-local";
   onActionChange: (action: MetadataFieldAction) => void;
   onValueChange: (value: string) => void;
 }) {
@@ -1196,9 +1227,12 @@ function MetadataFieldEditor(props: {
       </div>
       {props.action === "set" ? (
         <input
+          type={props.inputType ?? "text"}
+          step={props.inputType === "datetime-local" ? "1" : undefined}
           value={props.value}
           disabled={props.disabled}
           placeholder={props.currentValue || props.label}
+          onInput={(event) => props.onValueChange(event.currentTarget.value)}
           onChange={(event) => props.onValueChange(event.target.value)}
         />
       ) : null}
@@ -1773,11 +1807,30 @@ function buildMetadataEditPayload(edit: MetadataEditState): MetadataEditPayload 
     payload.software = "";
   }
 
+  if (edit.createdAtAction === "set") {
+    payload.created_at = edit.createdAtValue;
+  } else if (edit.createdAtAction === "remove") {
+    payload.created_at = "";
+  }
+
+  if (edit.takenAtAction === "set") {
+    payload.taken_at = edit.takenAtValue;
+  } else if (edit.takenAtAction === "remove") {
+    payload.taken_at = "";
+  }
+
   return hasMetadataEdits(payload) ? payload : null;
 }
 
 function hasMetadataEdits(payload: MetadataEditPayload): boolean {
-  return Boolean(payload.strip_all || payload.strip_gps || "creator" in payload || "software" in payload);
+  return Boolean(
+    payload.strip_all ||
+      payload.strip_gps ||
+      "creator" in payload ||
+      "software" in payload ||
+      "created_at" in payload ||
+      "taken_at" in payload,
+  );
 }
 
 function formatMetadataEditSummary(edit: MetadataEditState): string {
@@ -1789,6 +1842,8 @@ function formatMetadataEditSummary(edit: MetadataEditState): string {
     edit.stripGps ? "GPS removal" : "",
     edit.creatorAction !== "keep" ? `Creator ${edit.creatorAction}` : "",
     edit.softwareAction !== "keep" ? `Software ${edit.softwareAction}` : "",
+    edit.createdAtAction !== "keep" ? `Created date ${edit.createdAtAction}` : "",
+    edit.takenAtAction !== "keep" ? `Taken date ${edit.takenAtAction}` : "",
   ].filter(Boolean);
 
   return actions.length > 0 ? actions.join(" / ") : "No metadata edits";
@@ -1804,12 +1859,15 @@ function formatMetadataAction(action: MetadataFieldAction): string {
   return "Keep";
 }
 
-function getMetadataCurrentValue(metadata: ImageMetadata | null, field: "creator" | "software"): string {
+function getMetadataCurrentValue(
+  metadata: ImageMetadata | null,
+  field: "creator" | "software" | "createdAt" | "takenAt",
+): string {
   if (!metadata) {
     return "";
   }
 
-  const keys = field === "creator" ? ["Artist", "Creator", "Author"] : ["Software"];
+  const keys = getMetadataFieldKeys(field);
   for (const key of keys) {
     const value = metadata.exif[key];
     if (value !== undefined && value !== null) {
@@ -1818,6 +1876,19 @@ function getMetadataCurrentValue(metadata: ImageMetadata | null, field: "creator
   }
 
   return "";
+}
+
+function getMetadataFieldKeys(field: "creator" | "software" | "createdAt" | "takenAt"): string[] {
+  if (field === "creator") {
+    return ["Artist", "Creator", "Author"];
+  }
+  if (field === "software") {
+    return ["Software"];
+  }
+  if (field === "createdAt") {
+    return ["DateTime"];
+  }
+  return ["DateTimeOriginal", "DateTimeDigitized"];
 }
 
 function buildMetadataRows(
@@ -1935,6 +2006,14 @@ function getMetadataRowPlan(
     return getFieldActionPlan(edit.softwareAction, edit.softwareValue);
   }
 
+  if (tab === "exif" && isCreatedDateMetadataLabel(label)) {
+    return getFieldActionPlan(edit.createdAtAction, formatDateMetadataOutput(edit.createdAtValue));
+  }
+
+  if (tab === "exif" && isTakenDateMetadataLabel(label)) {
+    return getFieldActionPlan(edit.takenAtAction, formatDateMetadataOutput(edit.takenAtValue));
+  }
+
   if (tab === "xmp" && edit.stripGps && String(value).includes("GPS")) {
     return { output: "GPS data removed", status: "removed" };
   }
@@ -1961,6 +2040,19 @@ function isSoftwareMetadataLabel(label: string): boolean {
   return label.toLowerCase() === "software";
 }
 
+function isCreatedDateMetadataLabel(label: string): boolean {
+  return label.toLowerCase() === "datetime";
+}
+
+function isTakenDateMetadataLabel(label: string): boolean {
+  const normalized = label.toLowerCase();
+  return normalized === "datetimeoriginal" || normalized === "datetimedigitized";
+}
+
+function formatDateMetadataOutput(value: string): string {
+  return value.replace("T", " ");
+}
+
 function buildPlannedMetadataRows(
   tab: MetadataTab,
   edit: MetadataEditState,
@@ -1979,6 +2071,16 @@ function buildPlannedMetadataRows(
   if (edit.softwareAction !== "keep" && !existingLabels.some(isSoftwareMetadataLabel)) {
     const plan = getFieldActionPlan(edit.softwareAction, edit.softwareValue);
     rows.push({ label: "Software", source: "Not present", output: plan.output, status: plan.status });
+  }
+
+  if (edit.createdAtAction !== "keep" && !existingLabels.some(isCreatedDateMetadataLabel)) {
+    const plan = getFieldActionPlan(edit.createdAtAction, formatDateMetadataOutput(edit.createdAtValue));
+    rows.push({ label: "DateTime", source: "Not present", output: plan.output, status: plan.status });
+  }
+
+  if (edit.takenAtAction !== "keep" && !existingLabels.some(isTakenDateMetadataLabel)) {
+    const plan = getFieldActionPlan(edit.takenAtAction, formatDateMetadataOutput(edit.takenAtValue));
+    rows.push({ label: "DateTimeOriginal", source: "Not present", output: plan.output, status: plan.status });
   }
 
   return rows;

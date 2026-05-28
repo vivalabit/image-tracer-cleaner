@@ -203,6 +203,59 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(metadata["xmp"], {})
         self.assertIsNone(metadata["color_profile"])
 
+    def test_randomize_metadata_payload_edits_dates(self) -> None:
+        image = Image.new("RGB", (3, 2), "black")
+
+        response = self.client.post(
+            "/api/randomize",
+            files={"file": ("input.jpg", _save_jpeg_with_exif(image), "image/jpeg")},
+            data={
+                "metadata": json.dumps(
+                    {
+                        "created_at": "2026-05-28T10:30",
+                        "taken_at": "2025-04-03T02:01:59",
+                    }
+                ),
+                "output_format": "JPEG",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        metadata_response = self.client.post(
+            "/api/metadata/read",
+            files={"file": ("output.jpg", response.content, "image/jpeg")},
+        )
+        metadata = metadata_response.json()
+
+        self.assertEqual(metadata["exif"]["DateTime"], "2026:05:28 10:30:00")
+        self.assertEqual(metadata["exif"]["DateTimeOriginal"], "2025:04:03 02:01:59")
+        self.assertEqual(metadata["exif"]["DateTimeDigitized"], "2025:04:03 02:01:59")
+
+    def test_randomize_metadata_payload_removes_dates(self) -> None:
+        image = Image.new("RGB", (3, 2), "black")
+
+        response = self.client.post(
+            "/api/randomize",
+            files={"file": ("input.jpg", _save_jpeg_with_exif(image), "image/jpeg")},
+            data={
+                "metadata": json.dumps({"created_at": "", "taken_at": ""}),
+                "output_format": "JPEG",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        metadata_response = self.client.post(
+            "/api/metadata/read",
+            files={"file": ("output.jpg", response.content, "image/jpeg")},
+        )
+        metadata = metadata_response.json()
+
+        self.assertNotIn("DateTime", metadata["exif"])
+        self.assertNotIn("DateTimeOriginal", metadata["exif"])
+        self.assertNotIn("DateTimeDigitized", metadata["exif"])
+
     def test_randomize_skips_disabled_recipe_steps(self) -> None:
         image = Image.new("RGB", (3, 2), "black")
         image.putpixel((0, 0), (255, 0, 0))
@@ -384,6 +437,9 @@ def _save_png_with_metadata(image: Image.Image) -> bytes:
 def _save_jpeg_with_exif(image: Image.Image) -> bytes:
     exif = Image.Exif()
     exif[ExifTags.Base.Artist] = "Image Randomizer Test"
+    exif[ExifTags.Base.DateTime] = "2024:01:02 03:04:05"
+    exif[ExifTags.Base.DateTimeOriginal] = "2024:01:02 03:04:05"
+    exif[ExifTags.Base.DateTimeDigitized] = "2024:01:02 03:04:05"
 
     buffer = BytesIO()
     image.save(buffer, format="JPEG", exif=exif)

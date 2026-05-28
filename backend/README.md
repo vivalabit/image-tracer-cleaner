@@ -73,9 +73,14 @@ backend applies it after visual operations, so recipe ordering stays about pixel
   "strip_gps": true,
   "strip_all": false,
   "creator": "",
-  "software": "Image Randomizer"
+  "software": "Image Randomizer",
+  "created_at": "2026-05-28T10:30",
+  "taken_at": "2026-05-28T10:30"
 }
 ```
+
+Date fields are normalized to EXIF `YYYY:MM:DD HH:MM:SS` before saving. Empty `creator`,
+`software`, `created_at`, or `taken_at` values remove the corresponding fields.
 
 The metadata read endpoint returns:
 
@@ -138,6 +143,13 @@ becomes:
 
 This lets the future UI or compatibility layer translate old method selections into the new
 `POST /api/randomize` recipe without reintroducing path-based file access.
+
+## ExifTool Engine
+
+`image_randomizer.core.exiftool_engine.ExifToolEngine` is the backend wrapper for optional
+ExifTool use. It validates the binary with `exiftool -ver`, rejects shell command strings,
+invokes ExifTool only through `subprocess.run([...])`, and maps uploaded/blob bytes through
+temporary files so callers do not need server-side image paths.
 
 ## Run
 

@@ -9,7 +9,8 @@ React + TypeScript + Vite MVP for the Python backend contract.
 - Reads uploaded image metadata through `POST /api/metadata/read`.
 - Lets the user build ordered pipeline steps with `name`, `enabled`, and `params`.
 - Supports manual exact parameter values and backend-seeded random min/max parameter ranges.
-- Keeps metadata editing/removal separate from the visual recipe.
+- Keeps metadata editing/removal separate from the visual recipe, including creator, software,
+  created date, and taken date fields.
 - Sends active steps as `operations` and metadata edits as `metadata` through `POST /api/randomize`.
 - Analyzes the generated output with `POST /api/analyze` for visual, hash, metadata, and size metrics.
 - Keeps preview output as a temporary blob and downloads exports as `<original-name>_processed.<format>`.
