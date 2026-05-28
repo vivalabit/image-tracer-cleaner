@@ -66,7 +66,7 @@ the request seed before the operation runs:
 ```
 
 Metadata edits are sent outside the recipe as the optional multipart `metadata` JSON form field. The
-backend applies it after visual operations, so recipe ordering stays about pixels only:
+backend applies them with ExifTool after visual operations are rendered to the output blob:
 
 ```json
 {
@@ -75,12 +75,19 @@ backend applies it after visual operations, so recipe ordering stays about pixel
   "creator": "",
   "software": "Image Randomizer",
   "created_at": "2026-05-28T10:30",
-  "taken_at": "2026-05-28T10:30"
+  "taken_at": "2026-05-28T10:30",
+  "advanced_edits": [
+    {"action": "set", "tag": "IFD0:Make", "value": "OpenAI Camera"},
+    {"action": "remove", "group": "IFD0", "tag": "Artist"}
+  ]
 }
 ```
 
-Date fields are normalized to EXIF `YYYY:MM:DD HH:MM:SS` before saving. Empty `creator`,
-`software`, `created_at`, or `taken_at` values remove the corresponding fields.
+Simple controls map to ExifTool tag assignments: `strip_all` emits `-all=`, `strip_gps`
+emits `-GPS:all=`, `-XMP:Geotag=`, and XMP EXIF GPS tag removals, and text/date fields
+write EXIF plus matching XMP tags. Date fields are normalized to EXIF `YYYY:MM:DD HH:MM:SS`
+before saving. Empty `creator`, `software`, `created_at`, or `taken_at` values remove the
+corresponding fields. Advanced edits support `set` or `remove` for a concrete ExifTool tag.
 
 The metadata read endpoint uses ExifTool through the upload/blob wrapper and runs:
 

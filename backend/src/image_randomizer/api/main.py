@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import random
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -10,12 +9,11 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 
 from image_randomizer.core.analysis import analyze_images
-from image_randomizer.core.metadata import read_image_metadata
-from image_randomizer.core.models import Recipe
-from image_randomizer.core.operations import apply_operation
+from image_randomizer.core.metadata import apply_metadata_edits, read_image_metadata
+from image_randomizer.core.models import Recipe, RecipeStep
 from image_randomizer.core.pipeline import apply_pipeline, load_image_bytes, parse_recipe_step, save_image_bytes
 from image_randomizer.core.recipe import parse_recipe_payload
-from image_randomizer.core.registry import get_method_definitions
+from image_randomizer.core.registry import get_method_definitions, normalize_method_name
 
 app = FastAPI(title="Image Randomizer API", version="0.1.0")
 
@@ -99,15 +97,17 @@ async def randomize(
     data = await file.read()
     try:
         image = load_image_bytes(data)
-        result = apply_pipeline(image, parsed_recipe.steps, seed=parsed_recipe.seed)
+        visual_steps, metadata_edits = split_metadata_steps(parsed_recipe.steps)
         if metadata_params:
-            result = apply_operation(
-                result,
-                "metadata",
-                random.Random(parsed_recipe.seed),
-                metadata_params,
-            )
+            metadata_edits.append(metadata_params)
+        result = apply_pipeline(image, visual_steps, seed=parsed_recipe.seed)
         payload = save_image_bytes(result, parsed_recipe.output_format)
+        if metadata_edits:
+            payload = apply_metadata_edits(
+                payload,
+                metadata_edits,
+                suffix=get_output_suffix(parsed_recipe.output_format),
+            )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -133,3 +133,21 @@ def parse_metadata_form(metadata: str | None) -> dict[str, Any]:
 def get_upload_suffix(file: UploadFile) -> str:
     filename = file.filename or ""
     return Path(filename).suffix or ".bin"
+
+
+def get_output_suffix(output_format: str) -> str:
+    return f".{output_format.lower().replace('jpeg', 'jpg')}"
+
+
+def split_metadata_steps(steps: tuple[RecipeStep, ...]) -> tuple[list[RecipeStep], list[dict[str, Any]]]:
+    visual_steps: list[RecipeStep] = []
+    metadata_edits: list[dict[str, Any]] = []
+    for step in steps:
+        if normalize_method_name(step.name) != "metadata":
+            visual_steps.append(step)
+            continue
+
+        if step.enabled:
+            metadata_edits.append(step.params)
+
+    return visual_steps, metadata_edits

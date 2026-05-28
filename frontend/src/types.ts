@@ -38,6 +38,14 @@ export type MetadataEditPayload = {
   software?: string;
   created_at?: string;
   taken_at?: string;
+  advanced_edits?: MetadataAdvancedEdit[];
+};
+
+export type MetadataAdvancedEdit = {
+  action: "set" | "remove";
+  tag: string;
+  group?: string;
+  value?: unknown;
 };
 
 export type RecipeStep = Operation & {

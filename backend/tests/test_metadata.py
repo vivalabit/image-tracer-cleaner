@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from image_randomizer.core.metadata import normalize_exiftool_metadata
+from image_randomizer.core.metadata import build_metadata_write_args, normalize_exiftool_metadata
 
 
 class MetadataTest(unittest.TestCase):
@@ -58,6 +58,52 @@ class MetadataTest(unittest.TestCase):
 
         self.assertEqual(metadata[0]["group"], "IFD0")
         self.assertEqual(metadata[0]["tag"], "Software")
+
+    def test_build_metadata_write_args_uses_exiftool_tags(self) -> None:
+        args = build_metadata_write_args(
+            {
+                "strip_all": True,
+                "creator": "Image Randomizer Test",
+                "software": "Image Randomizer",
+                "created_at": "2026-05-28T10:30",
+                "taken_at": "2025:04:03 02:01:59",
+            }
+        )
+
+        self.assertEqual(args[0], "-all=")
+        self.assertIn("-EXIF:Artist=Image Randomizer Test", args)
+        self.assertIn("-XMP-dc:Creator=Image Randomizer Test", args)
+        self.assertIn("-EXIF:Software=Image Randomizer", args)
+        self.assertIn("-EXIF:ModifyDate=2026:05:28 10:30:00", args)
+        self.assertIn("-EXIF:DateTimeOriginal=2025:04:03 02:01:59", args)
+        self.assertIn("-EXIF:CreateDate=2025:04:03 02:01:59", args)
+
+    def test_build_metadata_write_args_removes_gps_groups(self) -> None:
+        args = build_metadata_write_args({"strip_gps": True})
+
+        self.assertIn("-GPS:all=", args)
+        self.assertIn("-XMP:Geotag=", args)
+        self.assertIn("-XMP-exif:GPSLatitude=", args)
+        self.assertIn("-XMP-exif:GPSLongitude=", args)
+
+    def test_build_metadata_write_args_supports_advanced_edits(self) -> None:
+        args = build_metadata_write_args(
+            {
+                "advanced_edits": [
+                    {"action": "set", "tag": "IFD0:Make", "value": "OpenAI"},
+                    {"action": "remove", "group": "IFD0", "tag": "Artist"},
+                    {"action": "remove", "tag": "XMP:XML:com.adobe.xmp"},
+                ]
+            }
+        )
+
+        self.assertEqual(args, ["-IFD0:Make=OpenAI", "-IFD0:Artist=", "-XMP:XML:com.adobe.xmp="])
+
+    def test_build_metadata_write_args_rejects_unsafe_advanced_tag(self) -> None:
+        with self.assertRaisesRegex(ValueError, "unsupported characters"):
+            build_metadata_write_args(
+                {"advanced_edits": [{"action": "remove", "tag": "IFD0:Artist=bad"}]}
+            )
 
 
 if __name__ == "__main__":

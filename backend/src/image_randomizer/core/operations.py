@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import random
 from collections.abc import Callable
-from datetime import datetime
 from typing import Any
 
-from PIL import ExifTags, Image, ImageChops, ImageEnhance, ImageFilter, ImageOps
+from PIL import Image, ImageChops, ImageEnhance, ImageFilter, ImageOps
 
 from image_randomizer.core.registry import normalize_method_name
 
@@ -129,30 +128,6 @@ def move(image: Image.Image, rng: random.Random, params: dict[str, Any]) -> Imag
 def edit_metadata(image: Image.Image, rng: random.Random, params: dict[str, Any]) -> Image.Image:
     result = image.copy()
     result.info.update(image.info)
-
-    strip_all = coerce_metadata_bool(params.get("strip_all"), default=False)
-    strip_gps = coerce_metadata_bool(params.get("strip_gps"), default=True)
-    if strip_all:
-        result.info.clear()
-    elif strip_gps:
-        strip_gps_info(result)
-
-    if "creator" in params:
-        set_metadata_text(result, ExifTags.Base.Artist, "Creator", str(params["creator"]))
-    if "software" in params:
-        set_metadata_text(result, ExifTags.Base.Software, "Software", str(params["software"]))
-    if "created_at" in params:
-        set_metadata_text(
-            result,
-            ExifTags.Base.DateTime,
-            "Creation Time",
-            normalize_metadata_datetime(params["created_at"]),
-        )
-    if "taken_at" in params:
-        taken_at = normalize_metadata_datetime(params["taken_at"])
-        set_metadata_text(result, ExifTags.Base.DateTimeOriginal, "DateTimeOriginal", taken_at)
-        set_metadata_text(result, ExifTags.Base.DateTimeDigitized, "DateTimeDigitized", taken_at)
-
     return result
 
 
@@ -195,66 +170,3 @@ def _resize_percent(image: Image.Image, scale_x: int, scale_y: int) -> Image.Ima
         max(1, round(height * scale_y / 100)),
     )
     return image.resize(new_size, Image.Resampling.BILINEAR)
-
-
-def strip_gps_info(image: Image.Image) -> None:
-    exif = image.getexif()
-    if exif and ExifTags.IFD.GPSInfo in exif:
-        del exif[ExifTags.IFD.GPSInfo]
-        image.info["exif"] = exif.tobytes()
-
-    for key in ("XML:com.adobe.xmp", "xmp"):
-        value = image.info.get(key)
-        if value is not None and "GPS" in str(value):
-            image.info.pop(key, None)
-
-
-def coerce_metadata_bool(value: object, *, default: bool) -> bool:
-    if value is None:
-        return default
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        normalized = value.strip().lower()
-        if normalized in {"true", "1", "yes", "on"}:
-            return True
-        if normalized in {"false", "0", "no", "off"}:
-            return False
-    return bool(value)
-
-
-def set_metadata_text(image: Image.Image, exif_tag: int, png_key: str, value: str) -> None:
-    exif = image.getexif()
-    if value:
-        exif[exif_tag] = value
-        image.info[png_key] = value
-    else:
-        if exif_tag in exif:
-            del exif[exif_tag]
-        image.info.pop(png_key, None)
-
-    if exif:
-        image.info["exif"] = exif.tobytes()
-    else:
-        image.info.pop("exif", None)
-
-
-def normalize_metadata_datetime(value: object) -> str:
-    text = str(value).strip()
-    if not text:
-        return ""
-
-    for date_format in (
-        "%Y:%m:%d %H:%M:%S",
-        "%Y-%m-%dT%H:%M:%S",
-        "%Y-%m-%dT%H:%M",
-        "%Y-%m-%d %H:%M:%S",
-        "%Y-%m-%d %H:%M",
-    ):
-        try:
-            parsed = datetime.strptime(text, date_format)
-        except ValueError:
-            continue
-        return parsed.strftime("%Y:%m:%d %H:%M:%S")
-
-    raise ValueError("metadata date values must use YYYY-MM-DDTHH:MM or YYYY:MM:DD HH:MM:SS")
