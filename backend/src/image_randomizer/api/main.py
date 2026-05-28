@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import random
 from dataclasses import asdict
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -30,10 +31,10 @@ def methods() -> dict[str, list[dict[str, object]]]:
 
 
 @app.post("/api/metadata/read")
-async def metadata_read(file: UploadFile = File(...)) -> dict[str, object]:
+async def metadata_read(file: UploadFile = File(...)) -> list[dict[str, object]]:
     data = await file.read()
     try:
-        return read_image_metadata(data)
+        return read_image_metadata(data, suffix=get_upload_suffix(file))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -46,7 +47,12 @@ async def analyze(
     original_data = await original.read()
     output_data = await output.read()
     try:
-        return analyze_images(original_data, output_data)
+        return analyze_images(
+            original_data,
+            output_data,
+            original_suffix=get_upload_suffix(original),
+            output_suffix=get_upload_suffix(output),
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -122,3 +128,8 @@ def parse_metadata_form(metadata: str | None) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="metadata must be a JSON object")
 
     return payload
+
+
+def get_upload_suffix(file: UploadFile) -> str:
+    filename = file.filename or ""
+    return Path(filename).suffix or ".bin"

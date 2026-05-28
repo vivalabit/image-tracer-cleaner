@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import unittest
 from hashlib import sha256
 from io import BytesIO
+from pathlib import Path
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 from PIL import ExifTags, Image, ImageCms, PngImagePlugin
@@ -14,6 +17,14 @@ from image_randomizer.api.main import app
 class ApiTest(unittest.TestCase):
     def setUp(self) -> None:
         self.client = TestClient(app)
+        self.exiftool_run = patch(
+            "image_randomizer.core.exiftool_engine.subprocess.run",
+            side_effect=_fake_exiftool_run,
+        )
+        self.exiftool_run.start()
+
+    def tearDown(self) -> None:
+        self.exiftool_run.stop()
 
     def test_health(self) -> None:
         response = self.client.get("/api/health")
@@ -57,16 +68,14 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         metadata = response.json()
 
-        self.assertEqual(metadata["format"], "PNG")
-        self.assertEqual(metadata["dimensions"], {"width": 4, "height": 3})
-        self.assertEqual(metadata["exif"], {})
-        self.assertEqual(metadata["iptc"], {})
-        self.assertIn("XML:com.adobe.xmp", metadata["xmp"])
-        self.assertTrue(metadata["gps_presence"])
-        self.assertTrue(metadata["color_profile"]["present"])
-        self.assertGreater(metadata["color_profile"]["bytes"], 0)
-        self.assertEqual(len(metadata["color_profile"]["sha256"]), 64)
-        self.assertEqual(metadata["file_hash"], sha256(payload).hexdigest())
+        self.assertEqual(_metadata_value(metadata, "File", "FileType"), "PNG")
+        self.assertEqual(_metadata_value(metadata, "File", "ImageWidth"), 4)
+        self.assertEqual(_metadata_value(metadata, "File", "ImageHeight"), 3)
+        self.assertIn("XMP.XML:com.adobe.xmp", _metadata_keys(metadata))
+        self.assertTrue(_metadata_has_gps(metadata))
+        self.assertGreater(_metadata_value(metadata, "ICC_Profile", "ProfileBytes"), 0)
+        self.assertFalse(_metadata_item(metadata, "File", "FileType")["writable"])
+        self.assertTrue(_metadata_item(metadata, "XMP", "XML:com.adobe.xmp")["writable"])
 
     def test_metadata_read_returns_exif(self) -> None:
         image = Image.new("RGB", (4, 3), "black")
@@ -80,10 +89,11 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         metadata = response.json()
 
-        self.assertEqual(metadata["format"], "JPEG")
-        self.assertEqual(metadata["dimensions"], {"width": 4, "height": 3})
-        self.assertEqual(metadata["exif"]["Artist"], "Image Randomizer Test")
-        self.assertFalse(metadata["gps_presence"])
+        self.assertEqual(_metadata_value(metadata, "File", "FileType"), "JPEG")
+        self.assertEqual(_metadata_value(metadata, "File", "ImageWidth"), 4)
+        self.assertEqual(_metadata_value(metadata, "File", "ImageHeight"), 3)
+        self.assertEqual(_metadata_value(metadata, "IFD0", "Artist"), "Image Randomizer Test")
+        self.assertFalse(_metadata_has_gps(metadata))
 
     def test_analyze_returns_hash_delta_metadata_and_similarity(self) -> None:
         image = Image.new("RGB", (4, 3), "black")
@@ -109,8 +119,8 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(analysis["file_size_delta"]["output_bytes"], len(output_payload))
         self.assertEqual(analysis["file_size_delta"]["delta_bytes"], len(output_payload) - len(original_payload))
         self.assertTrue(analysis["metadata_changes"]["changed"])
-        self.assertIn("xmp.XML:com.adobe.xmp", analysis["metadata_changes"]["removed"])
-        self.assertIn("gps_presence", analysis["metadata_changes"]["modified"])
+        self.assertIn("XMP.XML:com.adobe.xmp", analysis["metadata_changes"]["removed"])
+        self.assertIn("ICC_Profile.ProfileBytes", analysis["metadata_changes"]["removed"])
         self.assertEqual(analysis["visual_similarity_score"], 100.0)
 
     def test_analyze_detects_visual_difference(self) -> None:
@@ -199,9 +209,9 @@ class ApiTest(unittest.TestCase):
             files={"file": ("output.png", response.content, "image/png")},
         )
         metadata = metadata_response.json()
-        self.assertEqual(metadata["exif"], {})
-        self.assertEqual(metadata["xmp"], {})
-        self.assertIsNone(metadata["color_profile"])
+        self.assertFalse(_metadata_has_exif(metadata))
+        self.assertFalse(_metadata_has_group(metadata, "XMP"))
+        self.assertFalse(_metadata_has_group(metadata, "ICC_Profile"))
 
     def test_randomize_metadata_payload_edits_dates(self) -> None:
         image = Image.new("RGB", (3, 2), "black")
@@ -228,9 +238,9 @@ class ApiTest(unittest.TestCase):
         )
         metadata = metadata_response.json()
 
-        self.assertEqual(metadata["exif"]["DateTime"], "2026:05:28 10:30:00")
-        self.assertEqual(metadata["exif"]["DateTimeOriginal"], "2025:04:03 02:01:59")
-        self.assertEqual(metadata["exif"]["DateTimeDigitized"], "2025:04:03 02:01:59")
+        self.assertEqual(_metadata_value(metadata, "IFD0", "DateTime"), "2026:05:28 10:30:00")
+        self.assertEqual(_metadata_value(metadata, "ExifIFD", "DateTimeOriginal"), "2025:04:03 02:01:59")
+        self.assertEqual(_metadata_value(metadata, "ExifIFD", "DateTimeDigitized"), "2025:04:03 02:01:59")
 
     def test_randomize_metadata_payload_removes_dates(self) -> None:
         image = Image.new("RGB", (3, 2), "black")
@@ -252,9 +262,9 @@ class ApiTest(unittest.TestCase):
         )
         metadata = metadata_response.json()
 
-        self.assertNotIn("DateTime", metadata["exif"])
-        self.assertNotIn("DateTimeOriginal", metadata["exif"])
-        self.assertNotIn("DateTimeDigitized", metadata["exif"])
+        self.assertNotIn("IFD0.DateTime", _metadata_keys(metadata))
+        self.assertNotIn("ExifIFD.DateTimeOriginal", _metadata_keys(metadata))
+        self.assertNotIn("ExifIFD.DateTimeDigitized", _metadata_keys(metadata))
 
     def test_randomize_skips_disabled_recipe_steps(self) -> None:
         image = Image.new("RGB", (3, 2), "black")
@@ -311,8 +321,8 @@ class ApiTest(unittest.TestCase):
         )
         metadata = metadata_response.json()
 
-        self.assertNotIn("Artist", metadata["exif"])
-        self.assertEqual(metadata["exif"]["Software"], "Image Randomizer")
+        self.assertNotIn("IFD0.Artist", _metadata_keys(metadata))
+        self.assertEqual(_metadata_value(metadata, "IFD0", "Software"), "Image Randomizer")
 
     def test_randomize_metadata_step_strips_gps_xmp(self) -> None:
         image = Image.new("RGB", (3, 2), "black")
@@ -346,9 +356,9 @@ class ApiTest(unittest.TestCase):
         )
         metadata = metadata_response.json()
 
-        self.assertFalse(metadata["gps_presence"])
-        self.assertEqual(metadata["xmp"], {})
-        self.assertEqual(metadata["exif"]["Software"], "Image Randomizer")
+        self.assertFalse(_metadata_has_gps(metadata))
+        self.assertFalse(_metadata_has_group(metadata, "XMP"))
+        self.assertEqual(_metadata_value(metadata, "IFD0", "Software"), "Image Randomizer")
 
     def test_randomize_metadata_step_strips_all_metadata(self) -> None:
         image = Image.new("RGB", (3, 2), "black")
@@ -381,9 +391,9 @@ class ApiTest(unittest.TestCase):
         )
         metadata = metadata_response.json()
 
-        self.assertEqual(metadata["exif"], {})
-        self.assertEqual(metadata["xmp"], {})
-        self.assertIsNone(metadata["color_profile"])
+        self.assertFalse(_metadata_has_exif(metadata))
+        self.assertFalse(_metadata_has_group(metadata, "XMP"))
+        self.assertFalse(_metadata_has_group(metadata, "ICC_Profile"))
 
     def test_randomize_requires_recipe_object(self) -> None:
         image = Image.new("RGB", (3, 2), "black")
@@ -444,3 +454,93 @@ def _save_jpeg_with_exif(image: Image.Image) -> bytes:
     buffer = BytesIO()
     image.save(buffer, format="JPEG", exif=exif)
     return buffer.getvalue()
+
+
+def _fake_exiftool_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+    if command == ["exiftool", "-ver"]:
+        return subprocess.CompletedProcess(command, 0, stdout="12.76\n", stderr="")
+
+    if len(command) >= 6 and command[:-1] == ["exiftool", "-json", "-G1", "-a", "-s"]:
+        try:
+            payload = [_fake_exiftool_payload(Path(command[-1]))]
+        except Exception as exc:
+            return subprocess.CompletedProcess(command, 1, stdout="", stderr=str(exc))
+        return subprocess.CompletedProcess(command, 0, stdout=json.dumps(payload), stderr="")
+
+    return subprocess.CompletedProcess(command, 1, stdout="", stderr="unexpected exiftool command")
+
+
+def _fake_exiftool_payload(path: Path) -> dict[str, object]:
+    image = Image.open(path)
+    payload: dict[str, object] = {
+        "SourceFile": str(path),
+        "File:FileType": image.format,
+        "File:ImageWidth": image.width,
+        "File:ImageHeight": image.height,
+        "Composite:ImageSize": f"{image.width}x{image.height}",
+    }
+
+    exif = image.getexif()
+    for tag_id, value in exif.items():
+        if tag_id == ExifTags.IFD.GPSInfo:
+            gps = exif.get_ifd(ExifTags.IFD.GPSInfo)
+            for gps_tag_id, gps_value in gps.items():
+                tag = ExifTags.GPSTAGS.get(gps_tag_id, str(gps_tag_id))
+                payload[f"GPS:{tag}"] = _fake_exiftool_json_value(gps_value)
+            continue
+
+        tag = ExifTags.TAGS.get(tag_id, str(tag_id))
+        group = "ExifIFD" if tag in {"DateTimeOriginal", "DateTimeDigitized"} else "IFD0"
+        payload[f"{group}:{tag}"] = _fake_exiftool_json_value(value)
+
+    for key in ("XML:com.adobe.xmp", "xmp"):
+        value = image.info.get(key)
+        if value is not None:
+            payload[f"XMP:{key}"] = _fake_exiftool_json_value(value)
+
+    profile = image.info.get("icc_profile")
+    if isinstance(profile, bytes):
+        payload["ICC_Profile:ProfileBytes"] = len(profile)
+
+    return payload
+
+
+def _fake_exiftool_json_value(value: object) -> object:
+    if isinstance(value, bytes):
+        try:
+            return value.decode("utf-8")
+        except UnicodeDecodeError:
+            return value.hex()
+    if isinstance(value, tuple):
+        return [_fake_exiftool_json_value(item) for item in value]
+    return value
+
+
+def _metadata_item(metadata: list[dict[str, object]], group: str, tag: str) -> dict[str, object]:
+    for item in metadata:
+        if item["group"] == group and item["tag"] == tag:
+            return item
+    raise AssertionError(f"metadata item not found: {group}.{tag}")
+
+
+def _metadata_value(metadata: list[dict[str, object]], group: str, tag: str) -> object:
+    return _metadata_item(metadata, group, tag)["value"]
+
+
+def _metadata_keys(metadata: list[dict[str, object]]) -> set[str]:
+    return {f"{item['group']}.{item['tag']}" for item in metadata}
+
+
+def _metadata_has_group(metadata: list[dict[str, object]], group: str) -> bool:
+    return any(item["group"] == group for item in metadata)
+
+
+def _metadata_has_exif(metadata: list[dict[str, object]]) -> bool:
+    return any(item["group"] in {"ExifIFD", "GPS", "IFD0"} for item in metadata)
+
+
+def _metadata_has_gps(metadata: list[dict[str, object]]) -> bool:
+    return any(
+        "GPS" in str(item["group"]) or "GPS" in str(item["tag"]) or "GPS" in str(item["value"])
+        for item in metadata
+    )

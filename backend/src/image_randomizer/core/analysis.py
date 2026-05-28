@@ -2,20 +2,25 @@ from __future__ import annotations
 
 import hashlib
 import math
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from io import BytesIO
-from typing import Any
 
 from PIL import Image, ImageChops, UnidentifiedImageError
 
 from image_randomizer.core.metadata import read_image_metadata
 
 
-def analyze_images(original_data: bytes, output_data: bytes) -> dict[str, object]:
+def analyze_images(
+    original_data: bytes,
+    output_data: bytes,
+    *,
+    original_suffix: str = ".bin",
+    output_suffix: str = ".bin",
+) -> dict[str, object]:
     original_image = open_image(original_data)
     output_image = open_image(output_data)
-    original_metadata = read_image_metadata(original_data)
-    output_metadata = read_image_metadata(output_data)
+    original_metadata = read_image_metadata(original_data, suffix=original_suffix)
+    output_metadata = read_image_metadata(output_data, suffix=output_suffix)
 
     return {
         "original_hash": hashlib.sha256(original_data).hexdigest(),
@@ -60,7 +65,10 @@ def build_file_size_delta(original_size: int, output_size: int) -> dict[str, obj
     }
 
 
-def compare_metadata(original: Mapping[str, object], output: Mapping[str, object]) -> dict[str, object]:
+def compare_metadata(
+    original: Sequence[Mapping[str, object]],
+    output: Sequence[Mapping[str, object]],
+) -> dict[str, object]:
     original_flat = flatten_metadata(original)
     output_flat = flatten_metadata(output)
     original_keys = set(original_flat)
@@ -78,19 +86,12 @@ def compare_metadata(original: Mapping[str, object], output: Mapping[str, object
     }
 
 
-def flatten_metadata(metadata: Mapping[str, object]) -> dict[str, object]:
-    fields = {
-        "format": metadata.get("format"),
-        "exif": metadata.get("exif"),
-        "iptc": metadata.get("iptc"),
-        "xmp": metadata.get("xmp"),
-        "gps_presence": metadata.get("gps_presence"),
-        "color_profile": metadata.get("color_profile"),
-    }
-
+def flatten_metadata(metadata: Sequence[Mapping[str, object]]) -> dict[str, object]:
     result: dict[str, object] = {}
-    for key, value in fields.items():
-        flatten_value(key, value, result)
+    for item in metadata:
+        group = str(item.get("group", "Unknown"))
+        tag = str(item.get("tag", "Unknown"))
+        flatten_value(f"{group}.{tag}", item.get("value"), result)
     return result
 
 

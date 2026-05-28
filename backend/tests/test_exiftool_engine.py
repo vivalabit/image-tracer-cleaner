@@ -85,6 +85,21 @@ class ExifToolEngineTest(unittest.TestCase):
         self.assertEqual(context.exception.returncode, 1)
         self.assertIn("bad tag", context.exception.stderr)
 
+    def test_read_json_accepts_explicit_read_args(self) -> None:
+        calls: list[list[str]] = []
+
+        def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            calls.append(command)
+            if command == ["exiftool", "-ver"]:
+                return subprocess.CompletedProcess(command, 0, stdout="12.76\n", stderr="")
+            return subprocess.CompletedProcess(command, 0, stdout='[{"File:FileType":"JPEG"}]', stderr="")
+
+        with patch("image_randomizer.core.exiftool_engine.subprocess.run", fake_run):
+            payload = ExifToolEngine().read_json(b"payload", ["-json", "-G1", "-a", "-s"])
+
+        self.assertEqual(payload, [{"File:FileType": "JPEG"}])
+        self.assertEqual(calls[1][:-1], ["exiftool", "-json", "-G1", "-a", "-s"])
+
 
 if __name__ == "__main__":
     unittest.main()

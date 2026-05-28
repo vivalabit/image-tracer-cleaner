@@ -5,6 +5,7 @@ import { analyzeImages, fetchMethods, randomizeImage, readImageMetadata } from "
 import type {
   ImageAnalysis,
   ImageMetadata,
+  MetadataItem,
   MetadataEditPayload,
   MethodDefinition,
   MethodParameter,
@@ -750,15 +751,15 @@ function App() {
             </span>
             <div>
               <span>Format</span>
-              <strong>{metadata?.format ?? "--"}</strong>
+              <strong>{getMetadataFormat(metadata) ?? "--"}</strong>
             </div>
             <div>
               <span>Width</span>
-              <strong>{metadata ? metadata.dimensions.width : "--"}</strong>
+              <strong>{getMetadataWidth(metadata) ?? "--"}</strong>
             </div>
             <div>
               <span>Height</span>
-              <strong>{metadata ? metadata.dimensions.height : "--"}</strong>
+              <strong>{getMetadataHeight(metadata) ?? "--"}</strong>
             </div>
             <div>
               <span>Size</span>
@@ -1867,12 +1868,9 @@ function getMetadataCurrentValue(
     return "";
   }
 
-  const keys = getMetadataFieldKeys(field);
-  for (const key of keys) {
-    const value = metadata.exif[key];
-    if (value !== undefined && value !== null) {
-      return formatMetadataValue(value);
-    }
+  const item = findMetadataItemByTags(metadata, getMetadataFieldKeys(field));
+  if (item) {
+    return formatMetadataValue(item.value);
   }
 
   return "";
@@ -1889,6 +1887,76 @@ function getMetadataFieldKeys(field: "creator" | "software" | "createdAt" | "tak
     return ["DateTime"];
   }
   return ["DateTimeOriginal", "DateTimeDigitized"];
+}
+
+function getMetadataFormat(metadata: ImageMetadata | null): string | null {
+  return getMetadataScalar(metadata, "FileType") ?? getMetadataScalar(metadata, "MIMEType");
+}
+
+function getMetadataWidth(metadata: ImageMetadata | null): string | null {
+  return getMetadataScalar(metadata, "ImageWidth") ?? getMetadataScalar(metadata, "ExifImageWidth");
+}
+
+function getMetadataHeight(metadata: ImageMetadata | null): string | null {
+  return getMetadataScalar(metadata, "ImageHeight") ?? getMetadataScalar(metadata, "ExifImageHeight");
+}
+
+function getMetadataScalar(metadata: ImageMetadata | null, tag: string): string | null {
+  if (!metadata) {
+    return null;
+  }
+
+  const item = findMetadataItemByTags(metadata, [tag]);
+  return item ? formatMetadataValue(item.value) : null;
+}
+
+function findMetadataItemByTags(metadata: ImageMetadata, tags: string[]): MetadataItem | null {
+  const normalizedTags = new Set(tags.map((tag) => tag.toLowerCase()));
+  return metadata.find((item) => normalizedTags.has(item.tag.toLowerCase())) ?? null;
+}
+
+function getMetadataItemsForTab(metadata: ImageMetadata, tab: MetadataTab): MetadataItem[] {
+  if (tab === "exif") {
+    return metadata.filter(isExifMetadataItem);
+  }
+  if (tab === "iptc") {
+    return metadata.filter((item) => item.group.toLowerCase().includes("iptc"));
+  }
+  if (tab === "xmp") {
+    return metadata.filter(isXmpMetadataItem);
+  }
+  if (tab === "output") {
+    return metadata.filter((item) => !isExifMetadataItem(item) && !isXmpMetadataItem(item) && !isIptcMetadataItem(item));
+  }
+  return metadata;
+}
+
+function isExifMetadataItem(item: MetadataItem): boolean {
+  const group = item.group.toLowerCase();
+  const tag = item.tag.toLowerCase();
+  return group.includes("exif") || group.includes("ifd") || group === "gps" || tag.includes("gps");
+}
+
+function isXmpMetadataItem(item: MetadataItem): boolean {
+  const group = item.group.toLowerCase();
+  const tag = item.tag.toLowerCase();
+  return group.includes("xmp") || tag.includes("xmp");
+}
+
+function isIptcMetadataItem(item: MetadataItem): boolean {
+  return item.group.toLowerCase().includes("iptc");
+}
+
+function hasGpsMetadata(metadata: ImageMetadata): boolean {
+  return metadata.some((item) => {
+    const text = `${item.group} ${item.tag} ${formatMetadataValue(item.value)}`.toUpperCase();
+    return text.includes("GPS");
+  });
+}
+
+function formatMetadataItemLabel(item: MetadataItem): string {
+  const label = item.label || item.tag;
+  return item.group ? `${item.group}:${label}` : label;
 }
 
 function buildMetadataRows(
@@ -1911,58 +1979,43 @@ function buildMetadataRows(
   }
 
   if (tab === "overview") {
+    const gpsPresent = hasGpsMetadata(metadata);
+    const dimensions = [getMetadataWidth(metadata), getMetadataHeight(metadata)].filter(Boolean).join(" x ");
     return [
-      { label: "Format", source: metadata.format ?? "Unknown", output: "", status: "kept" },
+      { label: "Format", source: getMetadataFormat(metadata) ?? "Unknown", output: "", status: "kept" },
       {
         label: "Dimensions",
-        source: `${metadata.dimensions.width} x ${metadata.dimensions.height}`,
+        source: dimensions || "Unknown",
         output: "",
         status: "kept",
       },
       {
         label: "GPS",
-        source: metadata.gps_presence ? "Present" : "Not present",
-        output: getGpsOutput(edit, metadata.gps_presence),
-        status: getGpsStatus(edit, metadata.gps_presence),
+        source: gpsPresent ? "Present" : "Not present",
+        output: getGpsOutput(edit, gpsPresent),
+        status: getGpsStatus(edit, gpsPresent),
       },
       {
-        label: "File hash",
-        source: metadata.file_hash,
-        output: buildMetadataEditPayload(edit) ? "Recomputed on export" : "",
-        status: buildMetadataEditPayload(edit) ? "edited" : "kept",
+        label: "Fields",
+        source: String(metadata.length),
+        output: edit.stripAll ? "File fields remain" : "",
+        status: edit.stripAll ? "edited" : "kept",
       },
+      { label: "Writable fields", source: String(metadata.filter((item) => item.writable).length), output: "", status: "kept" },
     ];
   }
 
-  if (tab === "output") {
-    return [
-      {
-        label: "Color profile",
-        source: metadata.color_profile ? `${metadata.color_profile.bytes} bytes` : "Not present",
-        output: edit.stripAll && metadata.color_profile ? "Removed" : "",
-        status: edit.stripAll && metadata.color_profile ? "removed" : metadata.color_profile ? "kept" : "removed",
-      },
-      {
-        label: "Color profile hash",
-        source: metadata.color_profile?.sha256 ?? "",
-        output: edit.stripAll && metadata.color_profile ? "Removed" : "",
-        status: edit.stripAll && metadata.color_profile ? "removed" : metadata.color_profile ? "kept" : "removed",
-      },
-    ];
-  }
-
-  const section = metadata[tab] as Record<string, unknown>;
-  const entries = Object.entries(section);
-  const plannedRows = buildPlannedMetadataRows(tab, edit, entries.map(([label]) => label));
+  const entries = getMetadataItemsForTab(metadata, tab);
+  const plannedRows = buildPlannedMetadataRows(tab, edit, entries.map((item) => item.tag));
   if (entries.length === 0 && plannedRows.length === 0) {
     return [{ label: tab.toUpperCase(), source: "Empty", output: "", status: "kept" }];
   }
 
-  const metadataRows = entries.map(([label, value]) => {
-    const plan = getMetadataRowPlan(tab, label, value, edit);
+  const metadataRows = entries.map((item) => {
+    const plan = getMetadataRowPlan(tab, item.tag, item.value, edit);
     return {
-      label,
-      source: formatMetadataValue(value),
+      label: formatMetadataItemLabel(item),
+      source: formatMetadataValue(item.value),
       output: plan.output,
       status: plan.status,
     };

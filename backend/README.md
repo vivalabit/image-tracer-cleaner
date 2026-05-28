@@ -82,19 +82,19 @@ backend applies it after visual operations, so recipe ordering stays about pixel
 Date fields are normalized to EXIF `YYYY:MM:DD HH:MM:SS` before saving. Empty `creator`,
 `software`, `created_at`, or `taken_at` values remove the corresponding fields.
 
-The metadata read endpoint returns:
+The metadata read endpoint uses ExifTool through the upload/blob wrapper and runs:
+
+```bash
+exiftool -json -G1 -a -s file
+```
+
+It returns a normalized metadata list:
 
 ```json
-{
-  "format": "JPEG",
-  "dimensions": {"width": 2400, "height": 1600},
-  "exif": {},
-  "iptc": {},
-  "xmp": {},
-  "gps_presence": false,
-  "color_profile": null,
-  "file_hash": "sha256..."
-}
+[
+  {"group": "File", "tag": "FileType", "label": "File Type", "value": "JPEG", "writable": false},
+  {"group": "IFD0", "tag": "Artist", "label": "Artist", "value": "Image Randomizer", "writable": true}
+]
 ```
 
 The analyze endpoint accepts multipart `original` and `output` file fields and returns:
@@ -117,9 +117,9 @@ The analyze endpoint accepts multipart `original` and `output` file fields and r
   },
   "metadata_changes": {
     "changed": true,
-    "added": ["exif.Software"],
-    "removed": ["xmp.XML:com.adobe.xmp"],
-    "modified": ["gps_presence"]
+    "added": ["IFD0.Software"],
+    "removed": ["XMP.XML:com.adobe.xmp"],
+    "modified": ["IFD0.Artist"]
   },
   "visual_similarity_score": 98.42
 }

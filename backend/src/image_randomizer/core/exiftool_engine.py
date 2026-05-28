@@ -89,8 +89,14 @@ class ExifToolEngine:
                 stderr=process.stderr,
             )
 
-    def read_json(self, data: bytes, *, suffix: str = ".bin") -> list[dict[str, Any]]:
-        result = self.run_on_blob(data, ["-json"], suffix=suffix)
+    def read_json(
+        self,
+        data: bytes,
+        args: Sequence[str] | None = None,
+        *,
+        suffix: str = ".bin",
+    ) -> list[dict[str, Any]]:
+        result = self.run_on_blob(data, args if args is not None else ["-json"], suffix=suffix)
         try:
             payload = json.loads(result.stdout)
         except json.JSONDecodeError as exc:

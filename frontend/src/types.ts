@@ -88,22 +88,12 @@ export type ImageAnalysis = {
   visual_similarity_score: number;
 };
 
-export type ColorProfileMetadata = {
-  present: boolean;
-  bytes: number;
-  sha256: string;
+export type MetadataItem = {
+  group: string;
+  tag: string;
+  label: string;
+  value: unknown;
+  writable: boolean;
 };
 
-export type ImageMetadata = {
-  format: string | null;
-  dimensions: {
-    width: number;
-    height: number;
-  };
-  exif: Record<string, unknown>;
-  iptc: Record<string, unknown>;
-  xmp: Record<string, unknown>;
-  gps_presence: boolean;
-  color_profile: ColorProfileMetadata | null;
-  file_hash: string;
-};
+export type ImageMetadata = MetadataItem[];
