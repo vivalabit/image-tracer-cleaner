@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import random
 from collections.abc import Callable
+from io import BytesIO
 from typing import Any
 
-from PIL import Image, ImageChops, ImageEnhance, ImageFilter, ImageOps
+from PIL import ExifTags, Image, ImageChops, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps
 
 from image_randomizer.core.registry import normalize_method_name
 
 OperationFn = Callable[[Image.Image, random.Random, dict[str, Any]], Image.Image]
+ORIENTATION_TAG = ExifTags.Base.Orientation
 
 
 def horizontal_mirror(image: Image.Image, rng: random.Random, params: dict[str, Any]) -> Image.Image:
@@ -33,6 +35,40 @@ def invert(image: Image.Image, rng: random.Random, params: dict[str, Any]) -> Im
 
 def grayscale(image: Image.Image, rng: random.Random, params: dict[str, Any]) -> Image.Image:
     return ImageOps.grayscale(image).convert("RGB")
+
+
+def saturation(image: Image.Image, rng: random.Random, params: dict[str, Any]) -> Image.Image:
+    amount = float(params.get("amount", rng.randint(-25, 25)))
+    return ImageEnhance.Color(image).enhance(_percent_factor(amount))
+
+
+def brightness(image: Image.Image, rng: random.Random, params: dict[str, Any]) -> Image.Image:
+    amount = float(params.get("amount", rng.randint(-10, 10)))
+    return ImageEnhance.Brightness(image).enhance(_percent_factor(amount))
+
+
+def gamma(image: Image.Image, rng: random.Random, params: dict[str, Any]) -> Image.Image:
+    gamma_value = max(0.01, float(params.get("gamma", rng.uniform(0.85, 1.15))))
+    if gamma_value == 1.0:
+        return image.copy()
+
+    table = [round(255 * ((value / 255) ** gamma_value)) for value in range(256)]
+    if image.mode == "L":
+        return image.point(table)
+
+    rgb, alpha = _rgb_with_alpha(image)
+    corrected = rgb.point(table * 3)
+    return _restore_alpha(corrected, alpha)
+
+
+def hue_shift(image: Image.Image, rng: random.Random, params: dict[str, Any]) -> Image.Image:
+    degrees = float(params.get("degrees", rng.randint(-15, 15)))
+    shift = round((degrees % 360) * 255 / 360)
+    rgb, alpha = _rgb_with_alpha(image)
+    hue, saturation_channel, value = rgb.convert("HSV").split()
+    hue = hue.point([(channel + shift) % 256 for channel in range(256)])
+    shifted = Image.merge("HSV", (hue, saturation_channel, value)).convert("RGB")
+    return _restore_alpha(shifted, alpha)
 
 
 def crop(image: Image.Image, rng: random.Random, params: dict[str, Any]) -> Image.Image:
@@ -85,6 +121,16 @@ def rotate(image: Image.Image, rng: random.Random, params: dict[str, Any]) -> Im
     return image.rotate(angle, expand=True, fillcolor=tuple(fill))
 
 
+def normalize_orientation(image: Image.Image, rng: random.Random, params: dict[str, Any]) -> Image.Image:
+    result = ImageOps.exif_transpose(image)
+    exif = image.getexif()
+    if ORIENTATION_TAG in exif:
+        del exif[ORIENTATION_TAG]
+    if exif or "exif" in image.info:
+        result.info["exif"] = exif.tobytes()
+    return result
+
+
 def border(image: Image.Image, rng: random.Random, params: dict[str, Any]) -> Image.Image:
     size = int(params.get("size", rng.randint(5, 15)))
     color = params.get("color")
@@ -95,8 +141,12 @@ def border(image: Image.Image, rng: random.Random, params: dict[str, Any]) -> Im
 
 def contrast(image: Image.Image, rng: random.Random, params: dict[str, Any]) -> Image.Image:
     amount = float(params.get("amount", rng.randint(-30, 30)))
-    factor = max(0.0, 1.0 + amount / 100.0)
-    return ImageEnhance.Contrast(image).enhance(factor)
+    return ImageEnhance.Contrast(image).enhance(_percent_factor(amount))
+
+
+def sharpen(image: Image.Image, rng: random.Random, params: dict[str, Any]) -> Image.Image:
+    amount = float(params.get("amount", rng.randint(20, 80)))
+    return ImageEnhance.Sharpness(image).enhance(_percent_factor(amount))
 
 
 def blur(image: Image.Image, rng: random.Random, params: dict[str, Any]) -> Image.Image:
@@ -125,6 +175,54 @@ def move(image: Image.Image, rng: random.Random, params: dict[str, Any]) -> Imag
     return ImageChops.offset(image, move_x, move_y)
 
 
+def jpeg_quality(image: Image.Image, rng: random.Random, params: dict[str, Any]) -> Image.Image:
+    quality = max(1, min(100, int(params.get("quality", rng.randint(65, 92)))))
+    working = image if image.mode in {"RGB", "L"} else image.convert("RGB")
+
+    buffer = BytesIO()
+    working.save(buffer, format="JPEG", quality=quality)
+    buffer.seek(0)
+
+    compressed = Image.open(buffer)
+    compressed.load()
+    return compressed.copy()
+
+
+def watermark(image: Image.Image, rng: random.Random, params: dict[str, Any]) -> Image.Image:
+    text = str(params.get("text", "Image TC"))
+    opacity = max(0, min(100, int(params.get("opacity", 35))))
+    if not text or opacity == 0:
+        return image.copy()
+
+    position = str(params.get("position", "bottom_right"))
+    color = _coerce_rgb(params.get("color"), (255, 255, 255))
+    alpha = round(255 * opacity / 100)
+    width, height = image.size
+    margin = round(min(width, height) * max(0.0, float(params.get("margin_pct", 3))) / 100)
+    font_size = max(8, round(min(width, height) * max(1.0, float(params.get("size_pct", 5))) / 100))
+    stroke_width = max(1, round(font_size * 0.08))
+
+    base = image.convert("RGBA")
+    overlay = Image.new("RGBA", base.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    font = _load_font(font_size)
+    left, top, right, bottom = draw.textbbox((0, 0), text, font=font, stroke_width=stroke_width)
+    text_width = round(right - left)
+    text_height = round(bottom - top)
+    x, y = _watermark_position(position, width, height, text_width, text_height, margin)
+
+    draw.text(
+        (x - left, y - top),
+        text,
+        font=font,
+        fill=(*color, alpha),
+        stroke_width=stroke_width,
+        stroke_fill=(0, 0, 0, round(alpha * 0.55)),
+    )
+    result = Image.alpha_composite(base, overlay)
+    return result if "A" in image.getbands() else result.convert("RGB")
+
+
 def edit_metadata(image: Image.Image, rng: random.Random, params: dict[str, Any]) -> Image.Image:
     result = image.copy()
     result.info.update(image.info)
@@ -136,17 +234,25 @@ OPERATION_FUNCTIONS: dict[str, OperationFn] = {
     "vmirror": vertical_mirror,
     "invert": invert,
     "grayscale": grayscale,
+    "saturation": saturation,
+    "brightness": brightness,
+    "gamma": gamma,
+    "hue_shift": hue_shift,
     "crop": crop,
     "fixresize": fixed_resize,
     "resize": resize,
     "interference": add_noise,
     "rotate": rotate,
+    "orientation_normalize": normalize_orientation,
     "border": border,
     "sharp": contrast,
+    "sharpen": sharpen,
     "blur": blur,
     "eskiz": sketch,
     "pixelization": pixelization,
     "move": move,
+    "jpeg_quality": jpeg_quality,
+    "watermark": watermark,
     "metadata": edit_metadata,
 }
 
@@ -159,7 +265,10 @@ def apply_operation(image: Image.Image, name: str, rng: random.Random, params: d
         raise ValueError(f"Unknown image operation: {name}") from exc
     result = operation(image, rng, params)
     if normalized_name != "metadata":
-        result.info.update(image.info)
+        info = dict(image.info)
+        info.update(result.info)
+        result.info.clear()
+        result.info.update(info)
     return result
 
 
@@ -170,3 +279,72 @@ def _resize_percent(image: Image.Image, scale_x: int, scale_y: int) -> Image.Ima
         max(1, round(height * scale_y / 100)),
     )
     return image.resize(new_size, Image.Resampling.BILINEAR)
+
+
+def _percent_factor(amount: float) -> float:
+    return max(0.0, 1.0 + amount / 100.0)
+
+
+def _rgb_with_alpha(image: Image.Image) -> tuple[Image.Image, Image.Image | None]:
+    if "A" not in image.getbands():
+        return image.convert("RGB"), None
+
+    rgba = image.convert("RGBA")
+    red, green, blue, alpha = rgba.split()
+    return Image.merge("RGB", (red, green, blue)), alpha
+
+
+def _restore_alpha(rgb: Image.Image, alpha: Image.Image | None) -> Image.Image:
+    if alpha is None:
+        return rgb
+    return Image.merge("RGBA", (*rgb.split(), alpha))
+
+
+def _coerce_rgb(value: object, default: tuple[int, int, int]) -> tuple[int, int, int]:
+    if isinstance(value, str) and len(value) == 7 and value.startswith("#"):
+        try:
+            return (
+                int(value[1:3], 16),
+                int(value[3:5], 16),
+                int(value[5:7], 16),
+            )
+        except ValueError:
+            return default
+
+    if isinstance(value, list | tuple) and len(value) == 3:
+        channels: list[int] = []
+        for channel in value:
+            if isinstance(channel, bool) or not isinstance(channel, int | float):
+                return default
+            channels.append(max(0, min(255, round(channel))))
+        return channels[0], channels[1], channels[2]
+
+    return default
+
+
+def _load_font(size: int) -> ImageFont.ImageFont | ImageFont.FreeTypeFont:
+    for font_name in ("DejaVuSans-Bold.ttf", "Arial Bold.ttf", "Arial.ttf"):
+        try:
+            return ImageFont.truetype(font_name, size=size)
+        except OSError:
+            continue
+    return ImageFont.load_default()
+
+
+def _watermark_position(
+    position: str,
+    width: int,
+    height: int,
+    text_width: int,
+    text_height: int,
+    margin: int,
+) -> tuple[int, int]:
+    positions = {
+        "top_left": (margin, margin),
+        "top_right": (width - text_width - margin, margin),
+        "bottom_left": (margin, height - text_height - margin),
+        "bottom_right": (width - text_width - margin, height - text_height - margin),
+        "center": ((width - text_width) // 2, (height - text_height) // 2),
+    }
+    x, y = positions.get(position, positions["bottom_right"])
+    return max(0, min(width - text_width, x)), max(0, min(height - text_height, y))

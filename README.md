@@ -177,17 +177,25 @@ Example `metadata` payload:
 - `vmirror`: vertical mirror.
 - `invert`: invert RGB colors.
 - `grayscale`: convert to grayscale.
+- `saturation`: adjust color saturation.
+- `brightness`: adjust brightness.
+- `gamma`: apply a gamma curve.
+- `hue_shift`: rotate hue in degrees.
 - `crop`: crop image edges by percent.
 - `fixresize`: resize both axes with one scale.
 - `resize`: resize X/Y axes independently.
 - `interference`: add RGB noise.
 - `rotate`: rotate the image.
+- `orientation_normalize`: apply EXIF orientation and clear the orientation flag.
 - `border`: add a border.
 - `sharp`: adjust contrast.
+- `sharpen`: increase edge sharpness.
 - `blur`: apply simple or Gaussian blur.
 - `eskiz`: sketch-like edge filter.
 - `pixelization`: pixelate the image.
 - `move`: wrap-shift pixels by X/Y offset.
+- `jpeg_quality`: round-trip through JPEG compression at a selected or random quality.
+- `watermark`: add deterministic text overlay for branded exports.
 - `metadata`: metadata-only recipe step.
 
 ## Testing

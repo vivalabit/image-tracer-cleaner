@@ -259,17 +259,25 @@ const fallbackMethods: MethodDefinition[] = [
   createFallbackMethod("vmirror", "Vertical mirror"),
   createFallbackMethod("invert", "Invert colors"),
   createFallbackMethod("grayscale", "Grayscale"),
+  createFallbackMethod("saturation", "Saturation"),
+  createFallbackMethod("brightness", "Brightness"),
+  createFallbackMethod("gamma", "Gamma"),
+  createFallbackMethod("hue_shift", "Hue shift"),
   createFallbackMethod("crop", "Crop"),
   createFallbackMethod("fixresize", "Fixed resize"),
   createFallbackMethod("resize", "Unfixed resize"),
   createFallbackMethod("interference", "Noise"),
   createFallbackMethod("rotate", "Rotate"),
+  createFallbackMethod("orientation_normalize", "Normalize orientation"),
   createFallbackMethod("border", "Border"),
   createFallbackMethod("sharp", "Contrast"),
+  createFallbackMethod("sharpen", "Sharpen"),
   createFallbackMethod("blur", "Blur"),
   createFallbackMethod("eskiz", "Sketch"),
   createFallbackMethod("pixelization", "Pixelization"),
   createFallbackMethod("move", "Move"),
+  createFallbackMethod("jpeg_quality", "JPEG quality jitter"),
+  createFallbackMethod("watermark", "Watermark"),
 ];
 
 function App() {
@@ -2067,6 +2075,47 @@ function OperationIcon(props: { name: string }) {
           <path d="M12 8a5 5 0 0 1 0 8" stroke="#d7e2ec" />
         </svg>
       );
+    case "saturation":
+      return (
+        <svg {...iconProps}>
+          <circle cx="8" cy="12" r="4" fill="#ff5a78" fillOpacity="0.8" stroke="none" />
+          <circle cx="14" cy="9" r="4" fill="#55d48b" fillOpacity="0.8" stroke="none" />
+          <circle cx="15" cy="15" r="4" fill="#4b8dff" fillOpacity="0.8" stroke="none" />
+          <circle cx="12" cy="12" r="8" />
+        </svg>
+      );
+    case "brightness":
+      return (
+        <svg {...iconProps}>
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 2v3" />
+          <path d="M12 19v3" />
+          <path d="M2 12h3" />
+          <path d="M19 12h3" />
+          <path d="m4.2 4.2 2.1 2.1" />
+          <path d="m17.7 17.7 2.1 2.1" />
+          <path d="m19.8 4.2-2.1 2.1" />
+          <path d="m6.3 17.7-2.1 2.1" />
+        </svg>
+      );
+    case "gamma":
+      return (
+        <svg {...iconProps}>
+          <path d="M4 19c6-1 5-13 16-14" />
+          <path d="M4 5v14h16" />
+          <path d="M8 15h8" strokeDasharray="2 2" />
+        </svg>
+      );
+    case "hue_shift":
+      return (
+        <svg {...iconProps}>
+          <circle cx="12" cy="12" r="8" />
+          <path d="M12 4v16" />
+          <path d="M5.1 16h13.8" />
+          <path d="M5.1 8h13.8" />
+          <path d="m16 6 3-1 1 3" />
+        </svg>
+      );
     case "crop":
       return (
         <svg {...iconProps}>
@@ -2109,6 +2158,7 @@ function OperationIcon(props: { name: string }) {
         </svg>
       );
     case "rotate":
+    case "orientation_normalize":
       return (
         <svg {...iconProps}>
           <circle cx="12" cy="12" r="4" />
@@ -2123,6 +2173,7 @@ function OperationIcon(props: { name: string }) {
         </svg>
       );
     case "sharp":
+    case "sharpen":
       return (
         <svg {...iconProps}>
           <path d="m4 18 5-1 9-9-4-4-9 9-1 5Z" />
@@ -2171,6 +2222,25 @@ function OperationIcon(props: { name: string }) {
           <path d="m2 12 3 3" />
           <path d="m22 12-3-3" />
           <path d="m22 12-3 3" />
+        </svg>
+      );
+    case "jpeg_quality":
+      return (
+        <svg {...iconProps}>
+          <path d="M5 4h10l4 4v12H5z" />
+          <path d="M15 4v4h4" />
+          <path d="M8 13h8" />
+          <path d="M8 16h6" />
+          <path d="M8 10h4" />
+        </svg>
+      );
+    case "watermark":
+      return (
+        <svg {...iconProps}>
+          <path d="M4 5h16v14H4z" />
+          <path d="M8 15h8" />
+          <path d="M10 15V9" />
+          <path d="M8 9h8" />
         </svg>
       );
     case "metadata":
@@ -3176,10 +3246,10 @@ function normalizeColorValue(value: string): string {
 }
 
 function inferUnit(name: string): string {
-  if (name.endsWith("_pct") || name === "amount") {
+  if (name.endsWith("_pct") || name === "amount" || name === "quality" || name === "opacity") {
     return "%";
   }
-  if (name === "angle") {
+  if (name === "angle" || name === "degrees") {
     return "deg";
   }
   if (name === "size" || name.endsWith("_size") || name === "radius" || name === "x" || name === "y") {
@@ -3189,23 +3259,23 @@ function inferUnit(name: string): string {
 }
 
 function inferCategory(name: string): string {
-  if (["crop", "resize", "fixresize", "rotate", "hmirror", "vmirror", "move"].includes(name)) {
+  if (["crop", "resize", "fixresize", "rotate", "orientation_normalize", "hmirror", "vmirror", "move"].includes(name)) {
     return "Geometry";
   }
-  if (["invert", "grayscale", "sharp"].includes(name)) {
+  if (["invert", "grayscale", "saturation", "brightness", "gamma", "hue_shift", "sharp"].includes(name)) {
     return "Color";
   }
-  if (["interference", "blur", "eskiz", "pixelization"].includes(name)) {
+  if (["interference", "blur", "sharpen", "eskiz", "pixelization", "jpeg_quality", "watermark"].includes(name)) {
     return "Pixels";
   }
   return "Custom";
 }
 
 function inferImpact(name: string): PipelineStep["impact"] {
-  if (["hmirror", "vmirror", "invert", "grayscale", "eskiz", "pixelization"].includes(name)) {
+  if (["hmirror", "vmirror", "invert", "grayscale", "eskiz", "pixelization", "watermark"].includes(name)) {
     return "strong";
   }
-  if (["crop", "rotate", "border", "blur", "move"].includes(name)) {
+  if (["crop", "rotate", "orientation_normalize", "border", "blur", "move", "hue_shift"].includes(name)) {
     return "medium";
   }
   return "subtle";

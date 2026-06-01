@@ -64,6 +64,7 @@ class ExifToolEngineTest(unittest.TestCase):
         self.assertEqual(calls[1][:-1], ["exiftool", "-overwrite_original", "-Artist=Tester"])
         self.assertEqual(Path(calls[1][-1]).suffix, ".jpg")
         self.assertIsNotNone(temp_path)
+        assert temp_path is not None
         self.assertFalse(temp_path.exists())
 
     def test_run_on_blob_rejects_shell_command_string(self) -> None:

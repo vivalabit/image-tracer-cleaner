@@ -48,6 +48,12 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(crop["parameters"][0]["name"], "top_pct")
         self.assertEqual(crop["parameters"][0]["random_default"], {"min": 5, "max": 15})
 
+        self.assertEqual(by_name["brightness"]["parameters"][0]["random_default"], {"min": -10, "max": 10})
+        self.assertEqual(by_name["gamma"]["parameters"][0]["value_range"], {"min": 0.1, "max": 5})
+        self.assertEqual(by_name["jpeg_quality"]["parameters"][0]["name"], "quality")
+        self.assertFalse(by_name["orientation_normalize"]["has_settings"])
+        self.assertEqual(by_name["watermark"]["parameters"][0]["default"], "Image TC")
+
         metadata = by_name["metadata"]
         self.assertEqual(metadata["parameters"][0]["name"], "strip_gps")
         self.assertEqual(metadata["parameters"][0]["type"], "boolean")
@@ -73,7 +79,10 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(_metadata_value(metadata, "File", "ImageHeight"), 3)
         self.assertIn("XMP.XML:com.adobe.xmp", _metadata_keys(metadata))
         self.assertTrue(_metadata_has_gps(metadata))
-        self.assertGreater(_metadata_value(metadata, "ICC_Profile", "ProfileBytes"), 0)
+        profile_bytes = _metadata_value(metadata, "ICC_Profile", "ProfileBytes")
+        self.assertIsInstance(profile_bytes, int)
+        assert isinstance(profile_bytes, int)
+        self.assertGreater(profile_bytes, 0)
         self.assertFalse(_metadata_item(metadata, "File", "FileType")["writable"])
         self.assertTrue(_metadata_item(metadata, "XMP", "XML:com.adobe.xmp")["writable"])
 
@@ -588,11 +597,11 @@ def _fake_apply_exiftool_write(path: Path, args: list[str]) -> None:
     if image_format == "PNG":
         png_info = PngImagePlugin.PngInfo()
         for key in ("XML:com.adobe.xmp", "xmp"):
-            value = info.get(key)
-            if isinstance(value, bytes):
-                value = value.decode("utf-8", errors="ignore")
-            if isinstance(value, str):
-                png_info.add_text(key, value)
+            info_value = info.get(key)
+            if isinstance(info_value, bytes):
+                info_value = info_value.decode("utf-8", errors="ignore")
+            if isinstance(info_value, str):
+                png_info.add_text(key, info_value)
         save_kwargs["pnginfo"] = png_info
 
     image.info.clear()
