@@ -29,6 +29,7 @@ frontend/dist/
 frontend/.vite/
 
 # Local environment files
+inst.md
 .env
 .env.*
 !.env.example
