@@ -43,6 +43,7 @@ frontend/
 - Node.js compatible with Vite 7 (`^20.19.0` or `>=22.12.0`).
 - npm.
 - ExifTool for metadata read/write features.
+- Docker and Docker Compose for the one-command containerized workflow.
 
 On macOS, ExifTool can be installed with:
 
@@ -51,10 +52,36 @@ brew install exiftool
 ```
 
 Visual image operations can run without metadata edits, but the metadata endpoints require the `exiftool` binary to be available on `PATH`.
+The backend Docker image installs ExifTool for the containerized workflow.
 
 ## Quick Start
 
-Run the backend in one terminal:
+Start the full stack with Docker Compose:
+
+```bash
+make dev
+```
+
+Open the app at:
+
+```text
+http://127.0.0.1:5173
+```
+
+`make dev` starts FastAPI, Vite, and ExifTool support in containers. The Vite dev server proxies `/api`
+requests to the backend service inside the Compose network.
+
+Useful Make targets:
+
+| Target | Purpose |
+| --- | --- |
+| `make dev` | Build and run the backend and frontend dev servers. |
+| `make test` | Run backend pytest and the frontend production build. |
+| `make lint` | Run backend ruff/mypy and frontend TypeScript checks. |
+| `make down` | Stop and remove Compose containers. |
+| `make logs` | Follow Compose logs. |
+
+If you prefer to run without Docker, run the backend in one terminal:
 
 ```bash
 cd backend
@@ -65,18 +92,12 @@ python -m pip install -e ".[dev]"
 python -m uvicorn image_randomizer.api.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-Run the frontend in another terminal:
+Then run the frontend in another terminal:
 
 ```bash
 cd frontend
 npm install
 npm run dev
-```
-
-Open the app at:
-
-```text
-http://127.0.0.1:5173
 ```
 
 The Vite dev server proxies `/api` requests to `http://127.0.0.1:8000`.
@@ -171,7 +192,14 @@ Example `metadata` payload:
 
 ## Testing
 
-Backend:
+With Docker Compose:
+
+```bash
+make test
+make lint
+```
+
+Backend only:
 
 ```bash
 cd backend
@@ -182,6 +210,7 @@ Frontend type check and production build:
 
 ```bash
 cd frontend
+npm run lint
 npm run build
 ```
 
@@ -192,4 +221,3 @@ npm run build
 - Disabled recipe steps are accepted by the backend and skipped.
 - Metadata date values use either `YYYY-MM-DDTHH:MM` or `YYYY:MM:DD HH:MM:SS`.
 - ExifTool commands are built as argument arrays, not shell strings.
-

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
 
 from image_randomizer.core.models import Recipe
 from image_randomizer.core.pipeline import SUPPORTED_OUTPUT_FORMATS, parse_recipe_step
@@ -32,7 +31,3 @@ def parse_recipe_payload(payload: object) -> Recipe:
         output_format=normalized_output_format,
         steps=tuple(parse_recipe_step(step) for step in steps),
     )
-
-    
-    
-

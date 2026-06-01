@@ -87,9 +87,11 @@ def generate_random_param_value(spec: Mapping[str, Any], rng: random.Random) -> 
         return rng.uniform(minimum, maximum)
 
     if param_type == "rgb_color":
-        minimum = parse_color_bound(spec.get("min"))
-        maximum = parse_color_bound(spec.get("max"))
-        return tuple(rng.randint(min(a, b), max(a, b)) for a, b in zip(minimum, maximum, strict=True))
+        min_color = parse_color_bound(spec.get("min"))
+        max_color = parse_color_bound(spec.get("max"))
+        return tuple(
+            rng.randint(min(a, b), max(a, b)) for a, b in zip(min_color, max_color, strict=True)
+        )
 
     if param_type == "enum":
         choices = spec.get("choices")
@@ -129,7 +131,7 @@ def parse_color_bound(value: object) -> tuple[int, int, int]:
             if isinstance(channel, bool) or not isinstance(channel, int):
                 raise ValueError("Random color channels must be integers")
             channels.append(max(0, min(255, channel)))
-        return tuple(channels)
+        return channels[0], channels[1], channels[2]
 
     raise ValueError("Random color bounds must be #RRGGBB or RGB arrays")
 
